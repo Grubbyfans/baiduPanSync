@@ -1,0 +1,19 @@
+BaiduPanSync_技术方案.md
+  s_14ee1b355832bc::t_f6a89543effdac 1-708
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "681e0a1f93e8a8880c219075902a15c69ec2bff0",
+  "prompts": {},
+  "sessions": {
+    "s_14ee1b355832bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1e3f2-158e-7af1-9115-6e96b350e9ef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
