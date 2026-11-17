@@ -4,7 +4,7 @@
 
 - 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.8，开发基线）
 - 文档分析：[分析结果.md](分析结果.md)
-- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.8.2：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
+- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.8.3：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
 - 安装/使用/测试说明：[baidupansync.koplugin/README.md](baidupansync.koplugin/README.md)
 - 阶段 A 验收记录：[阶段A验收记录.md](阶段A验收记录.md)（已通过）
 - 阶段 B 验收记录：[阶段B验收记录.md](阶段B验收记录.md)
@@ -24,6 +24,8 @@ KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
 ## 本地 WebDAV 测试服务
 
 已提供零依赖 Node.js 服务：[serve/README.md](serve/README.md)。修改 `serve/config.json` 的端口、账户和存储目录后，运行 `node serve/server.js`，可测试插件的 C1 上传下载及条件写入。
+
+0.8.3 根据设备日志补齐旧版 KOReader 缺少 ftruncate 声明的兼容，下载跳转后仍能安全重置临时文件。
 
 0.8.2 修复百度整书回读中空下载结果引起的通用异常，兼容无需截断的新建空临时文件；子进程异常和空返回会明确报错，上传后校验失败展示阶段、位置与补全发布方法。
 

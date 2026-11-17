@@ -53,7 +53,7 @@ function Errors.exception(value,stage,writing)
     local file,line=raw:match('([%w_%-]+%.lua):(%d+):')
     local reason=raw:find('nil value',1,true) and '接口或返回值为空'
         or raw:find('module ',1,true) and '运行环境缺少模块'
-        or raw:find('undefined symbol',1,true) and '运行环境缺少系统接口'
+        or (raw:find('undefined symbol',1,true) or raw:find('missing declaration for symbol',1,true)) and '运行环境缺少系统接口'
         or raw:find('bad argument',1,true) and '接口参数不兼容'
         or '运行时异常'
     return Errors.new(writing and 'UNCERTAIN' or 'IO',(stage or '任务')..'失败：'..reason..

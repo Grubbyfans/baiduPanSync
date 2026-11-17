@@ -71,6 +71,12 @@ function M.perform(req)
                 ok,truncated=pcall(function()
                     require('ffi/posix_h')
                     local ffi=require('ffi')
+                    -- Older KOReader headers define the platform's off_t and
+                    -- fileno but omit ftruncate (confirmed on v2026.03).
+                    -- Reuse that ABI type; never guess long/int64 on 32-bit.
+                    if not pcall(function()return ffi.C.ftruncate end) then
+                        ffi.cdef[[int ftruncate(int fd, off_t length);]]
+                    end
                     return ffi.C.ftruncate(ffi.C.fileno(output),0)==0
                 end)
             end

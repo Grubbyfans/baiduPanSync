@@ -56,5 +56,22 @@ assert(not e and fake.data=='ABC')
 -- Nonempty retries must fail explicitly, never retain a tail or reopen a path.
 e=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
 assert(e.code=='IO' and e.message:find('重置下载临时文件',1,true))
+-- Exact device failure: old POSIX declarations omit ftruncate. Register only
+-- its signature using the header's native off_t, then truncate the same FD.
+local declared=0
+local oldffi={C=setmetatable({fileno=function(value)return value end},{__index=function(_,symbol)
+    error("missing declaration for symbol '"..symbol.."'")
+end})}
+oldffi.cdef=function(signature)
+    assert(signature=='int ftruncate(int fd, off_t length);');declared=declared+1
+    oldffi.C.ftruncate=function(value,size)assert(value==fake and size==0);fake.data='';return 0 end
+end
+package.loaded.ffi=oldffi
+e,r=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
+assert(not e and fake.data=='ABC' and declared==1)
+e,r=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
+assert(not e and fake.data=='ABC' and declared==1,'existing declaration must be reused')
+local diagnostic=require('modules/errors').exception("dav_transport.lua:68: missing declaration for symbol 'ftruncate'")
+assert(diagnostic.message:find('缺少系统接口',1,true))
 io.open=open
 print('Streaming multipart framing, range hashing, byte limits and redirect truncation regressions passed')
