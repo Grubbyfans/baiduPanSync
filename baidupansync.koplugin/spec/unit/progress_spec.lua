@@ -5,6 +5,7 @@ describe("progress service (Stage A navigation)", function()
     local tmp_root
     local book_index = 0
     local state_index = 0
+    local clocks = {}
 
     local function write_book(content)
         book_index = book_index + 1
@@ -55,6 +56,7 @@ describe("progress service (Stage A navigation)", function()
             timeout_ms = 1000,
             poll_ms = 100,
         }
+        clocks[#clocks + 1] = clock
         return service, store, clock
     end
 
@@ -65,6 +67,7 @@ describe("progress service (Stage A navigation)", function()
             captured.err = err
             captured.result = result
         end)
+        for _, clock in ipairs(clocks) do clock:drain() end
         return captured
     end
 

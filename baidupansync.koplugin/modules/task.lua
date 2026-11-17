@@ -45,17 +45,19 @@ Task.TRANSITIONS = {
     idle = { preparing = true, cancelled = true },
     preparing = { reading_remote = true, writing = true, failed = true, cancelled = true },
     reading_remote = {
+        done = true, uncertain = true,
         awaiting_confirm = true, rechecking = true, downloading = true,
         failed = true, cancelled = true,
     },
-    awaiting_confirm = { rechecking = true, failed = true, cancelled = true },
+    awaiting_confirm = { done = true, rechecking = true, failed = true, cancelled = true },
     rechecking = {
+        downloading = true,
         writing = true, reading_remote = true, persisting_restore = true,
         committing_local = true,
         failed = true, cancelled = true, uncertain = true,
     },
     downloading = { validating = true, failed = true, cancelled = true, uncertain = true },
-    validating = { persisting_restore = true, failed = true, cancelled = true },
+    validating = { committing_local = true, persisting_restore = true, failed = true, cancelled = true },
     persisting_restore = { applying = true, failed = true, cancelled = true },
     applying = {
         checking_position = true, failed = true, cancelled = true, uncertain = true,
@@ -63,8 +65,8 @@ Task.TRANSITIONS = {
     checking_position = {
         committing_local = true, failed = true, uncertain = true, cancelled = true,
     },
-    writing = { verifying = true, failed = true, cancelled = true, uncertain = true },
-    verifying = { committing_local = true, failed = true, uncertain = true },
+    writing = { reading_remote = true, verifying = true, failed = true, cancelled = true, uncertain = true },
+    verifying = { committing_local = true, failed = true, cancelled = true, uncertain = true },
     committing_local = { done = true, failed = true, uncertain = true },
     done = {},
     failed = {},

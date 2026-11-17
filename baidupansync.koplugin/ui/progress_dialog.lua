@@ -199,4 +199,13 @@ function Dialog.start_hash_progress(total)
     return handle
 end
 
+function Dialog.start_scan_progress()
+    local cancelled=false
+    local dialog=ProgressbarDialog:new{title=_("检查根目录及子目录的同名书籍"),
+        subtitle=_("点击可取消；仅计算同名文件的完整摘要"),dismiss_text=_("取消同名检查？"),
+        dismiss_callback=function()cancelled=true end}
+    dialog:show()
+    return {is_cancelled=function()return cancelled end,close=function()dialog:close()end}
+end
+
 return Dialog

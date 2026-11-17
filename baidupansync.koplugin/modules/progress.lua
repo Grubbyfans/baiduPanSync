@@ -65,6 +65,7 @@ function ProgressService:new(o)
     if not o.store then error("ProgressService requires store") end
     return setmetatable({
         reader_ui = o.reader_ui,
+        identity = o.identity,
         store = o.store,
         event = o.event,
         schedule = o.schedule or default_schedule,
@@ -200,7 +201,16 @@ end
 -- In scroll mode it is weaker, and the returned match kind still says "page".
 function ProgressService:_match_location(actual, target, target_page)
     if actual == target then return true, "exact" end
+    local doc = self.reader_ui and self.reader_ui.document
+    if doc and type(doc.compareXPointers) == "function" then
+        local ok, order = pcall(doc.compareXPointers, doc, actual, target)
+        if ok and order == 0 then return true, "equivalent" end
+    end
     local actual_page = self:_page_of(actual)
+    local rolling = self.reader_ui and self.reader_ui.rolling
+    if rolling and rolling.view and rolling.view.view_mode ~= "page" then
+        return false
+    end
     if actual_page and target_page and actual_page == target_page then
         return true, "page"
     end
@@ -219,6 +229,7 @@ function ProgressService:_still_same_book(book)
     if not doc or doc.file ~= book.file_path then return false end
     local attr = lfs.attributes(book.file_path)
     return attr ~= nil and attr.size == book.size
+        and (book.mtime == nil or attr.modification == book.mtime)
 end
 
 function ProgressService:_navigate(target_xpointer, expected_book, completion, nav_opts)
@@ -235,6 +246,7 @@ function ProgressService:_navigate(target_xpointer, expected_book, completion, n
         return
     end
 
+    local expected_document = self.reader_ui.document
     local deadline = self.now_ms() + self.timeout_ms
     local attempts = 0
     local finished = false
@@ -246,7 +258,8 @@ function ProgressService:_navigate(target_xpointer, expected_book, completion, n
 
     local function check()
         attempts = attempts + 1
-        if expected_book and not self:_still_same_book(expected_book) then
+        if self.reader_ui.document ~= expected_document
+            or (expected_book and not self:_still_same_book(expected_book)) then
             finish(Errors.new(Errors.CODES.CANCELLED,
                 "书籍已关闭或被替换，已停止校验"), { attempts = attempts })
             return
@@ -296,14 +309,16 @@ function ProgressService:_navigate(target_xpointer, expected_book, completion, n
     end
 
     if nav_opts.on_check_start then pcall(nav_opts.on_check_start) end
-    check()
+    self.schedule(0, check)
 end
 
 function ProgressService:_check_context(context)
     local book, book_err = self:_book_snapshot()
     if not book then return nil, book_err end
     if context.book.file_path ~= book.file_path
-        or context.book.size ~= book.size then
+        or context.book.size ~= book.size
+        or (context.book.mtime ~= nil and context.book.mtime ~= book.mtime)
+        or (context.document ~= nil and context.document ~= self.reader_ui.document) then
         return nil, Errors.new(Errors.CODES.CONFLICT,
             "当前打开的书籍与记录不一致，请打开对应书籍后重试")
     end
@@ -341,6 +356,7 @@ function ProgressService:capture()
 
     return {
         book = book,
+        document = self.reader_ui.document,
         progress = {
             type = "xpointer",
             value = xpointer,
@@ -393,6 +409,8 @@ function ProgressService:apply(context, position, completion, opts)
         })
     end
 
+    before.book.content_sha256 = context.book.content_sha256
+    before.book.source_backend_id = context.book.source_backend_id
     local restore_point = {
         book = before.book,
         position = before.progress,
@@ -442,7 +460,7 @@ end
 
 --- Restores the position saved before the last successful apply.
 -- @tparam function completion completion(err, result)
-function ProgressService:undo(completion)
+function ProgressService:_undo_verified(completion)
     completion = completion or function() end
     local finished = false
     local function finish(err, result)
@@ -497,6 +515,35 @@ function ProgressService:undo(completion)
             cleared = cleared and true or false,
             warning = cleared and nil or clear_err,
         })
+    end)
+end
+
+-- Production undo uses the same complete identity as imports, including legacy rejection.
+function ProgressService:undo(completion)
+    completion = completion or function() end
+    if not self.identity then return self:_undo_verified(completion) end
+    local rp, err = self.store:get_restore_point()
+    if err then return completion(err) end
+    if not rp then return completion(Errors.new(Errors.CODES.NOT_FOUND, "没有恢复点")) end
+    if not require("modules/hash").is_sha256_hex(rp.book.content_sha256) then
+        return completion(Errors.new(Errors.CODES.UNSUPPORTED, "旧恢复点缺少完整摘要，拒绝撤销；原记录已保留"))
+    end
+    local context, capture_err = self:capture()
+    if not context then return completion(capture_err) end
+    self.identity:identify(context.book.file_path, { use_cache = false }, function(hash_err, identity)
+        if hash_err then return completion(hash_err) end
+        local valid, context_err = self:_check_context(context)
+        if not valid then return completion(context_err) end
+        if identity.content_sha256 ~= rp.book.content_sha256 then
+            return completion(Errors.new(Errors.CODES.CONFLICT, "恢复点与当前书籍完整摘要不同，拒绝撤销"))
+        end
+        local current, current_err = self.store:get_restore_point()
+        if current_err then return completion(current_err) end
+        if not current or current.book.content_sha256 ~= rp.book.content_sha256
+            or current.position.value ~= rp.position.value then
+            return completion(Errors.new(Errors.CODES.CONFLICT, "恢复点在校验期间变化，请重试"))
+        end
+        self:_undo_verified(completion)
     end)
 end
 

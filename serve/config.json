@@ -1,0 +1,10 @@
+{
+  "host": "127.0.0.1",
+  "port": 8080,
+  "directory": "./data",
+  "rootPath": "/sync/",
+  "username": "test",
+  "password": "123456",
+  "maxUploadBytes": 536870912,
+  "tls": null
+}

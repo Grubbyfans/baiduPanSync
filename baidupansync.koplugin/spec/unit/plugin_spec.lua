@@ -11,8 +11,8 @@ describe("plugin entry point", function()
 
     it("loads metadata and exposes a version", function()
         assert.is_true(type(meta.fullname) == "string" and #meta.fullname > 0)
-        assert.is_equal("0.2.0", meta.version)
-        assert.is_equal("0.2.0", Plugin.version)
+        assert.is_equal("0.6.1", meta.version)
+        assert.is_equal("0.6.1", Plugin.version)
     end)
 
     it("initializes a local store and service under the settings directory", function()
@@ -35,7 +35,7 @@ describe("plugin entry point", function()
         assert.is_truthy(instance.exports_dir:match("/baidupansync/exports$"))
     end)
 
-    it("registers only the three Stage A menu entries", function()
+    it("registers a single entry opening the persistent plugin page", function()
         local fake_ui = { menu = { registerToMainMenu = function() end } }
         local instance = Plugin:new{ ui = fake_ui }
         local menu_items = {}
@@ -43,10 +43,11 @@ describe("plugin entry point", function()
         local menu = menu_items.baidupansync
         assert.is_truthy(menu)
         assert.is_equal("more_tools", menu.sorting_hint)
-        assert.is_equal(3, #menu.sub_item_table)
-        for _, item in ipairs(menu.sub_item_table) do
-            assert.is_equal("function", type(item.callback))
-        end
+        assert.is_nil(menu.sub_item_table)
+        assert.is_equal("function",type(menu.callback))
+        local actions=require("ui/menu").actions(instance)
+        assert.is_equal(10,#actions)
+        for _,item in ipairs(actions)do assert.is_equal("function",type(item.callback))end
     end)
 
     it("disables the book-specific import entry without an EPUB", function()
@@ -54,9 +55,20 @@ describe("plugin entry point", function()
         local instance = Plugin:new{ ui = fake_ui }
         local menu_items = {}
         instance:addToMainMenu(menu_items)
-        local import_item = menu_items.baidupansync.sub_item_table[2]
+        local import_item = require("ui/menu").actions(instance)[7]
         assert.is_false(import_item.enabled_func())
         assert.is_false(instance:isCurrentBookSupported())
         assert.is_false(instance:hasRestorePoint())
     end)
+    it("loads cloud UI and exposes the library without an open EPUB", function()
+        local ui=require("ui/cloud_dialog")
+        assert.is_equal("function",type(ui.confirm))
+        assert.is_equal("function",type(ui.library))
+        local instance=Plugin:new{ui={menu={registerToMainMenu=function()end}}}
+        local menu={};instance:addToMainMenu(menu)
+        local library=require("ui/menu").actions(instance)[5]
+        assert.is_nil(library.enabled_func)
+        assert.is_false(instance:isCurrentBookSupported())
+    end)
+
 end)

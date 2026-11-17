@@ -1,178 +1,96 @@
 # BaiduPanSync（KOReader 插件）
 
-按《BaiduPanSync_技术方案.md》V1.4 实现：阶段 A（本地位置闭环）已完成并经用户确认；当前版本为**阶段 B：完整 SHA-256 书籍身份 + 本地手动交换引擎**。不连接任何远端后端，不包含 WebDAV/百度适配器。
+版本 **0.6.1**，技术方案 V1.6。已实现 WebDAV 的手动阅读进度同步、当前 EPUB 上传、云端书库与下载（D/E/F）；保留本地 JSON 交换。C1 已由用户确认通过，D/E/F 自动测试通过，GUI 与真机专项待验收。百度 C2 暂缓。
 
-- 插件版本：0.2.0（阶段 B）
-- 目标运行时：KOReader（LuaJIT）；已在本地 KOReader 检出 `c3e5f750b`（2026-11-10）的 macOS 模拟器环境验证
-- 阶段范围：方案第 9 节阶段 B；C1/C2 及之后的网络与云端功能尚未开始
+## 安装
 
-## 1. 已实现 / 未实现
+将整个 `baidupansync.koplugin` 复制到 KOReader 的 `plugins/` 目录并重启。升级前备份 `<KOReader数据目录>/settings/baidupansync/`，停止活动任务再替换插件。验证源码基线为本地 KOReader `c3e5f750b`。
 
-已实现：
+“书籍与阅读进度同步”菜单在文件管理器和阅读界面可用。没有打开 EPUB 时，当前书籍操作禁用，云端书库和配置仍可访问。
 
-- 完整 EPUB 的 SHA-256 内容身份（`bookId == contentSha256`）；
-- 分块增量哈希：处理块之间让出事件循环，显示进度、可取消；取消不返回摘要、不写缓存；哈希前后重新读取文件状态，变化则放弃；
-- 摘要缓存：按 `路径 + 大小 + mtime` 失效；缓存损坏或版本未知时忽略并重建（缓存是派生数据，不是权威状态）；
-- 云端进度 JSON（schemaVersion=1）：`book`/`progress`/`sync` 全字段校验，`book.id == book.contentSha256`、`revision`、`writeId`、`deviceId`、`updatedAt` 严格校验；
-- 全局 `deviceId`：首次生成并持久化到 `config.json`，之后不再变化；随机源为 `/dev/urandom`，不可用时报错而不是退化；
-- `writeId`：每次导出使用系统随机源重新生成；
-- `backendId`：按类型 + 规范化目标 + 账户做无歧义编码后 SHA-256；WebDAV 只做方案确认的等价归一化，拒绝内嵌凭据/查询/片段；
-- 基线存储：按 `backendId + bookId` 隔离；`remote_state` 显式区分 `present/absent`；基线含 `baseRevision`、远端原始字节指纹、位置指纹、writeId；
-- 冲突分类：首次关联、未变化、记录变化、同 revision 不同内容、记录出现/缺失；导入确认弹窗显示冲突类型与本地/导入差异；
-- 任务状态机：`idle → preparing → reading_remote → awaiting_confirm → rechecking → persisting_restore → applying → checking_position → committing_local → done`，另有 `failed/cancelled/uncertain`；非法转换被拒绝；
-- 手动交换引擎：导出=哈希→写文件→回读校验→提交本地基线；导入=校验记录→校验当前书身份→冲突确认→复核身份→保存恢复点→跳转/校验→提交基线；
-- 保留“撤销上次进度恢复”。
+## 独立插件页面
 
-未实现（后续阶段）：
+从 KOReader 菜单点击“书籍与阅读进度同步”，进入独立全屏页面。页面显示服务配置状态与当前书籍，集中提供云端、本地 JSON、配置和测试操作。
 
-- WebDAV / 百度网盘适配器、连接配置、授权（C1/C2）；
-- 远端读取/写入、条件写入、dlink 下载、sidecar 发布（C1/C2/D/E/F）；
-- 远端书库与下载（F）；
-- 与真实远端的 `baseRemoteFingerprint` 基线（当前手动交换通道使用内部 manual backendId）。
+配置保存/取消、查询或同步结果关闭后仍回到同一个主页。云端书库下载时保留列表及当前页，可继续选择下一本；点击“返回插件主页”回到主页。只有主动关闭主页、关闭文档或选择打开书籍时才退出对应页面，不会在异步任务结束后自动重新弹出已关闭页面。未打开 EPUB、未配置服务或任务执行期间，不可用的操作置灰。
 
-## 2. 安装
+## 配置与连接
 
-1. 将整个 `baidupansync.koplugin` 目录复制到目标 KOReader 的 `plugins/` 目录（Kindle `/mnt/us/koreader/plugins/`，Kobo `.adds/koreader/plugins/`，macOS 为 KOReader 检出的 `plugins/`）。
-2. 重启 KOReader。
-3. 打开一本 EPUB，阅读菜单 →“更多工具”→“书籍与阅读进度同步”。
+1. 在“WebDAV 配置”填写完整同步根 URL、用户名和密码。可选 CA 文件留空时使用系统可信 CA。
+2. 选择“WebDAV 连接与测试文件验证”。它使用随机命名的专用 JSON 验证读写、枚举、条件创建/替换和条件删除；不修改实际书籍。
+3. 每次会话首次写入未确认能力时，会执行同类探测。服务器根目录需要预先存在，插件建立 books、metadata、progress 子目录。
 
-## 3. 使用
+HTTP 明文传输仅用于用户明确配置的可信局域网。HTTPS 强制校验 CA、证书链、有效期和 SAN DNS/IP；缺少 CA、错主机或证书无效会失败，不自动降级。CN-only 证书不支持。
 
-```text
-书籍与阅读进度同步
-├── 导出当前阅读进度
-├── 导入阅读进度
-└── 撤销上次进度恢复
-```
+配置和密码分开保存，密码文件受 POSIX 权限保护，并非加密存储。更改目标或账户改变 backendId，进度基线不会混用；更新同一身份的密码不重置基线。任务进行中禁止修改配置或启动其他任务。
 
-- **导出**：首次对该书导出会计算完整 SHA-256（显示进度、可点按取消）；之后命中缓存则直接导出。导出文件包含完整内容摘要、revision、writeId、deviceId、时间。
-- **导入**：列出导出目录中的有效记录；确认弹窗显示内容摘要、导入/当前位置、revision、设备、时间、冲突类型；确认后先保存恢复点，再跳转并校验，成功后才更新本地基线。
-- **撤销**：回到上次导入前的位置；成功后清除恢复点，不上传或修改任何远端数据。
+## 阅读进度
 
-数据位置（KOReader 可写设置目录下的 `baidupansync/`）：
+- **上传当前阅读进度到云端**：只对当前 EPUB。确认弹窗显示本地/云端位置、远端版本和目标。确认后重查，变化则再次确认；回读成功后保存基线。
+- **查询云端阅读进度**：只读显示云端位置、修订、设备及设备时间；不导航、不改基线。
+- **下载并应用云端阅读进度**：完整摘要、大小、格式必须匹配。确认后先保存恢复点再导航，校验引擎实际位置，成功才提交基线。
+- **撤销上次进度恢复**：重新确认完整内容身份后回到恢复前位置；不上传云端。旧无完整摘要恢复点保留但拒绝应用。
 
-```text
-config.json          # {schemaVersion=1,data={deviceId=...}}
-hash_cache.json      # 摘要缓存（派生数据，可删除）
-sync_state.json      # {schemaVersion=1,data={baselines={backendId={bookId=...}}}}
-restore_points.json  # {schemaVersion=1,data={last={book,position,...}}}
-exports/*.json       # 云端 schema 的进度记录（手动复制进/出）
-```
+revision 只用于展示，以远端原始字节 SHA-256 判断变化。弱 ETag 不会转换成强条件；只能尽力写入的服务会先明确告知并要求确认，无法保证消除并发覆盖。百分比只显示，不代替 XPointer。滚动模式拒绝仅凭同页成功。
 
-## 4. 云端进度 JSON（schemaVersion=1）
+## 上传当前 EPUB
 
-```json
-{
-  "schemaVersion": 1,
-  "book": {
-    "id": "<64 位小写十六进制，等于 contentSha256>",
-    "title": "三国演义",
-    "format": "epub",
-    "size": 5242880,
-    "contentSha256": "<64 位小写十六进制>"
-  },
-  "progress": {
-    "type": "xpointer",
-    "value": "<KOReader XPointer>",
-    "percent": 0.5832
-  },
-  "sync": {
-    "revision": 3,
-    "writeId": "<每次写入重新生成的随机标识>",
-    "deviceId": "kindle-voyage-<随机标识>",
-    "updatedAt": "2026-11-16T20:10:00+08:00"
-  }
-}
-```
+仅上传当前打开的 EPUB，不扫描批量上传书库。`bookId` 等于完整文件 SHA-256；改名/换路径不改身份，内容字节变化产生新身份。
 
-校验：记录 ≤64 KiB；`schemaVersion` 必须为 1（未知版本拒绝）；`book.id == book.contentSha256` 且为 64 位小写十六进制；`format == "epub"`；`size` 非负整数；`title` 非空、≤512 UTF-8 字节、拒绝控制字符与非法 UTF-8；XPointer 非空、≤8 KiB、拒绝 NUL 与非法 UTF-8；`percent` 可省略，存在时必须有限且在 0..1；`revision` 正整数；`writeId`/`deviceId` 非空 ≤128 字节；`updatedAt` 必须为带 UTC 偏移的 ISO-8601。
+无同名记录直接上传；发现云端同名或相同内容记录时，显示 bookId 比较结果，再选择取消、覆盖指定条目或重命名。相同内容只保留一份发布记录，重命名改变展示文件名。不同内容覆盖会先发布新 bookId，再条件撤下指定旧条目；旧 EPUB 和旧进度保留，需自行在服务端核对清理。不支持可靠条件删除时，请选择重命名。
 
-`revision` 与 `updatedAt` 只用于展示/诊断，冲突判定使用**记录原始字节的 SHA-256 指纹**；时间戳和设备时钟不参与新旧判断。
+EPUB 提交后最后发布 sidecar；发布失败不作为正常书库项。已有 EPUB 但缺少发布记录时，再点上传会提示“检查并补全发布”，回读整本书校验后恢复；矛盾数据会停止。
 
-## 5. 哈希、缓存与取消
+首次发布默认记录 verificationLevel=size，表示已确认提交大小，不宣称验证了服务端完整 SHA-256；补全发布会回读并计算完整摘要。上传书籍不会隐式上传阅读进度。
 
-- 分块大小默认 1 MiB；每块后 `schedule` 让出，UI 可刷新和响应取消。
-- 进度对话框为 KOReader 的 `ProgressbarDialog`；点按后选择“取消”即置取消标志，哈希循环在下一块边界停止，返回 `CANCELLED`，不返回、不缓存不完整摘要。
-- 哈希开始和结束都会读取文件 size/mtime；中途变化返回 `CONFLICT`。
-- 缓存条目包含路径、size、mtime、sha256、computed_at；只有 size 与 mtime 都匹配才复用。
-- 缓存文件损坏、结构非法或版本未知时**按缓存未命中处理并重建**；它不是 config/sync_state 那样的权威状态，因此不要求保留。
-- `partial MD5` 仍是可选辅助线索，不参与身份判定。
+## 云端书库与下载
 
-## 6. 基线与冲突
+1. 在 KOReader 文件管理器设置**根目录**。插件直接读取 `home_dir`，不使用设备默认目录或 `.` 回退。
+2. 打开“云端书库 / 下载书籍”，选择已发布的 EPUB。
+3. 根目录和子目录中没有同名书籍时，直接下载到根目录。
+4. 有同名书籍时，只计算候选的完整摘要，显示所有路径及一致/不同结果，再选择取消、覆盖指定路径或重命名下载。
 
-基线按 `backendId + bookId` 保存，不按书名或单独 bookId：
+扫描、哈希和网络传输均提供取消；下载写入任务独占临时文件，检查空间、大小及完整 SHA-256 后安装。禁止覆盖当前打开的书籍；确认后目标或远端版本变化会停止。
 
-```json
-{
-  "remote_state": "present",
-  "base_revision": 3,
-  "base_remote_fingerprint": "<远端记录原始字节 SHA-256>",
-  "last_progress_fingerprint": "<仅 XPointer 的指纹，不含 percent>",
-  "updated_at": "2026-11-16T20:10:00+08:00",
-  "last_write_id": "<最后一次确认的 writeId>"
-}
-```
+覆盖会保留旧 EPUB 备份。不同内容覆盖还会原样备份旧 KOReader 阅读设置，不执行或改写其 Lua 内容；备份路径在完成提示中显示。启用 hash 元数据存储时，需先重启 KOReader再打开同路径的新内容，避免内部旧路径缓存。备份不自动删除；恢复时应关闭相关书籍，核对备份来源再手动还原。
 
-冲突类型与含义：
+下载后只询问是否打开，不自动应用云端进度。打开后需手动执行进度下载。
 
-| 类型 | 含义 | 行为 |
-|---|---|---|
-| `first_contact` | 本地无基线、存在记录 | 首次关联，必须确认 |
-| `unchanged` | 指纹与基线一致 | 仍需确认是否恢复（位置可能不同） |
-| `remote_changed` | 指纹不同且 revision 不同 | 提示记录变化，确认后关联 |
-| `same_revision_different_record` | revision 相同但指纹不同 | 并发迹象，明确告警 |
-| `remote_created` / `remote_deleted` | 基线为 absent 但记录出现 / 基线为 present 但记录缺失 | 需要确认或停止 |
+## 本地 JSON 交换
 
-手动文件交换使用内部固定 `backendId = sha256("baidupansync.manual-exchange.v1")`，与阶段 C1 的真实后端基线天然隔离；它不是用户可选后端。
-
-## 7. 测试
-
-```bash
-# 单元 + 真实引擎集成测试
-KOREADER_DIR=/path/to/koreader ./spec/run.sh
-
-# 只看某个 spec
-KOREADER_DIR=/path/to/koreader ./spec/run.sh -f "sync_engine"
-
-# 哈希吞吐/取消基准（仅桌面模拟器，不代表真机）
-KOREADER_DIR=/path/to/koreader ./spec/run.sh --bench
-BPS_BENCH_MB=10,100,300 ./spec/run.sh --bench
-```
-
-当前结果（2026-11-17，KOReader `c3e5f750b`，macOS emulator）：
+“本地导出阅读进度 JSON”和“本地导入阅读进度 JSON”不经过 WebDAV，文件位于：
 
 ```text
-121 tests / 15 files, 121 passed, 0 failed
-BENCH   10 MB:   0.066 s   151.3 MB/s
-BENCH  100 MB:   0.629 s   159.0 MB/s
-CANCEL after 1 chunk(s): 0.000 s, code=CANCELLED
+<KOReader数据目录>/settings/baidupansync/exports/
 ```
 
-覆盖：哈希分块/取消/文件变化、身份缓存与失效、设备 ID 持久化、JSON schema 边界与非法 UTF-8、404/损坏状态不覆盖、backendId 归一化与歧义、基线隔离、冲突分类、任务状态机、导出/导入/基线提交失败/确认取消，以及 **真实 crengine + ReaderUI + juliet.epub 的双设备 JSON 交换闭环**。
+导出成功会显示路径。另一设备的 JSON 需先手动复制到该目录，再导入；JSON 不包含 EPUB。
 
-## 8. 阶段 B 手动验收步骤
+本地状态还包括 config.json、credentials.json、hash_cache.json、sync_state.json、restore_points.json，以及任务自己的 transfers 临时资源。损坏或未来版本的权威状态不按空状态覆盖；摘要缓存是可重建派生数据。
 
-需要两台设备（或两台 KOReader 实例）各自有独立设置目录：
+## 限制与验收
 
-1. 设备 A 打开同一本 EPUB，翻到约 40%，导出进度；首次导出应显示哈希进度，完成后记录文件路径/摘要前缀/revision。
-2. 再次导出：不应再出现哈希进度（命中缓存），revision 增加。
-3. 把 A 的 JSON 复制到设备 B 的 `settings/baidupansync/exports/`（或用同一导出目录模拟）。
-4. 设备 B 打开同一 EPUB（内容必须完全一致），翻到其他位置后导入该记录：
-   - 确认弹窗显示相同内容摘要；
-   - 确认恢复后落点正确；
-   - B 的 `sync_state.json` 出现对应 `backendId + bookId` 基线。
-5. B 再导出，revision 应在 A 的记录上 +1；A 导入 B 的记录时应显示 `remote_changed` 并再次确认。
-6. 换一本内容不同的 EPUB 导入同一记录：必须提示完整摘要不一致并拒绝，位置不变。
-7. 手工破坏一个 JSON（截断/改字段）后导入：必须拒绝且不跳转。
-8. 大书（约 100 MB）导出一次，记录哈希耗时、进度是否刷新、取消响应；Kindle Voyage / Kobo Clara BW 上分别记录。
-9. 确认 `metadata.epub.lua` 未被插件直接改写。
+- 只支持 EPUB，不同步书签、批注和排版设置。所有操作由用户手动触发。
+- 不关闭或改写内置 KOSync 配置；同时使用其自动同步可能导致额外上报。
+- 网络工作在可取消子进程，流式传输带进度显示；socket 10 秒、传输 120 秒预算，DNS 等底层阻塞不保证精确总超时。写入取消表示结果未知，不代表远端回滚。
+- JSON 最大 64 KiB，DAV/内存响应最大 1 MiB；大 EPUB 流式传输。过大的目录响应安全失败，不当作空书库。
+- 不支持跨文件/跨进程事务；下载发布使用独占预留和同目录 rename，避免覆盖已占用路径，但其他程序不能在极小发布窗口内恶意替换目标。
+- 缓存按路径/大小/mtime 失效，不能保证检测保留这些属性的任意外部篡改；重要读写另有完整摘要及流校验。
+- GUI、Voyage/Clara BW 真机、真实大书性能和实际公网服务专项仍需验收。详见仓库 `阶段DEF验收记录.md`。
 
-## 9. 已知限制与待确认项
+## 开发验证
 
-- 当前 `revision` 是“手动交换通道”的本地写入计数，不是远端服务器 revision；C1 接入真实后端后由远端记录决定。
-- 手动交换的 baseline 不校验远端（没有远端），只校验交换文件与当前书身份；真正的条件写入/回读属于 C1/D。
-- 完整 SHA-256 每次内容变化都要重新计算；大书首次导出在低性能设备上的耗时尚未记录。
-- 桌面基准约 160 MB/s，真机（Voyage / Clara BW）未测，不能据此承诺 100 MB/20 秒。
-- 滚动模式落点校验仍为页级（阶段 A 已记录）；`percent` 仅展示。
-- 无网络请求、无凭据、无 Token；也没有 i18n 之外的多语言文案。
-- 阶段 A 的 `recordType="local-progress"` 记录不再被接受（缺少 `sync`/`contentSha256`）；升级后需重新导出。这是方案“不宣称与早期草案兼容”的预期行为。
+本地 KOReader 需要已构建的 LuaJIT/busted 运行环境。
+
+```sh
+# 普通用例；缺少服务时明确跳过网络用例
+KOREADER_DIR=/path/to/koreader ./baidupansync.koplugin/spec/run.sh
+# 自动创建 Python HTTP/TLS 隔离夹具
+KOREADER_DIR=/path/to/koreader python3 baidupansync.koplugin/spec/run_network.py
+# 使用项目 Node 服务（临时目录）+ TLS 夹具 + 全部插件测试
+KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
+# Node 服务自身的文件/并发/中断测试
+npm --prefix serve test
+```
+
+本次完整插件测试 **186/186 通过**（23 个文件，无跳过），含真实 Node WebDAV、真实 crengine 的书籍/进度/撤销流程；Node 服务 10/10 通过。桌面自动测试不等于真机验收。

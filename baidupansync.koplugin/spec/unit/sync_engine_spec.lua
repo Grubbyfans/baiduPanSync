@@ -363,4 +363,39 @@ describe("sync_engine (Stage B local exchange)", function()
         assert.is_truthy(exported.result.path)
         assert.is_false(exported.result.baseline_committed)
     end)
+    it("stops export when reader context changes during scheduled hashing", function()
+        identity:invalidate(book_path)
+        local queue, invalid = {}, false
+        local guarded = {
+            _check_context = function()
+                if invalid then return nil, require("modules/errors").new("CONFLICT", "changed") end
+                return true
+            end,
+        }
+        local engine = new_engine{ progress = guarded }
+        local count, failure = 0
+        engine:export_current(context(), {
+            schedule = function(fn) queue[#queue+1] = fn end,
+        }, function(e) count=count+1;failure=e end)
+        invalid=true
+        while #queue>0 do table.remove(queue,1)() end
+        assert.is_equal(1,count)
+        assert.is_equal("CONFLICT",failure.code)
+    end)
+
+    it("keeps one active task across identity access and releases it on completion", function()
+        identity:invalidate(book_path)
+        local engine=new_engine()
+        assert.is_equal(SyncEngine.MANUAL_BACKEND_ID,engine:get_manual_backend_id())
+        assert.is_equal(SyncEngine.MANUAL_BACKEND_ID,engine:get_manual_backend_id())
+        local queue,first,second,third={}
+        engine:export_current(context(),{schedule=function(fn)queue[#queue+1]=fn end},function(e,r)first={e=e,r=r}end)
+        engine:export_current(context(),export_opts(),function(e)second=e end)
+        assert.is_equal("CONFLICT",second.code)
+        while #queue>0 do table.remove(queue,1)() end
+        assert.is_nil(first.e);assert.is_truthy(first.r)
+        engine:export_current(context(),export_opts(),function(e,r)third={e=e,r=r}end)
+        assert.is_nil(third.e);assert.is_truthy(third.r)
+    end)
+
 end)

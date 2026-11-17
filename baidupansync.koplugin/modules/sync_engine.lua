@@ -131,6 +131,14 @@ function SyncEngine:export_current(context, opts, completion)
             return fail(identity_err)
         end
 
+        if self.progress._check_context then
+            local valid, err = self.progress:_check_context(context)
+            if not valid then return fail(err) end
+        end
+        if identity.size ~= context.book.size
+            or (context.book.mtime and context.book.mtime ~= identity.mtime) then
+            return fail(Errors.new(Errors.CODES.CONFLICT, "捕获位置后书籍文件已变化，请重试"))
+        end
         local writing_ok = task:transition("writing")
         if not writing_ok then
             return fail(Errors.new(Errors.CODES.INVALID_INPUT, "导出任务状态异常"))
@@ -310,6 +318,7 @@ function SyncEngine:import_from_file(path, context, opts, completion)
                         "书籍在导入过程中发生变化，已停止"))
                 end
 
+                context.book.content_sha256 = rechecked.content_sha256
                 self.progress:apply(context, record.progress, function(apply_err, apply_result)
                     if apply_err then
                         return fail(apply_err, {
@@ -378,4 +387,28 @@ function SyncEngine:import_from_file(path, context, opts, completion)
     end)
 end
 
+-- A single engine must not interleave confirmations, restore points or baselines.
+for _, name in ipairs({ "export_current", "import_from_file" }) do
+    local implementation = SyncEngine[name]
+    SyncEngine[name] = function(self, ...)
+        local args = { ... }
+        local index = name == "export_current" and 3 or 4
+        local completion = args[index] or function() end
+        if self._active then
+            return completion(Errors.new(Errors.CODES.CONFLICT, "已有同步任务，请等待其完成或取消"))
+        end
+        self._active = true
+        local finished = false
+        args[index] = function(err, result)
+            if finished then return end
+            finished = true
+            self._active = false
+            completion(err, result)
+        end
+        local ok = pcall(implementation, self, unpack(args, 1, index))
+        if not ok and not finished then
+            args[index](Errors.new(Errors.CODES.INVALID_INPUT, "同步任务异常，已停止；请核对文件及基线"))
+        end
+    end
+end
 return SyncEngine

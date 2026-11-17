@@ -1,15 +1,7 @@
 --[[--
-BaiduPanSync plugin entry point — Stage B.
-
-Stage B adds:
-- full-content SHA-256 identity (`bookId`) with cache, progress and cancel;
-- cloud progress JSON (schemaVersion=1) with writeId/deviceId/revision;
-- backendId identity + backendId+bookId baselines + conflict classification;
-- a local task state machine used for export/import;
-- manual JSON exchange between devices (no network backend).
-
-WebDAV/Baidu adapters, cloud libraries and remote conflict handling remain for
-later stages.
+BaiduPanSync 0.6.1: manual WebDAV EPUB and reading-progress synchronization.
+D/E/F use CloudService with fixed backend snapshots; local JSON exchange remains
+available separately. Baidu integration is deferred by the user.
 ]]
 
 local DataStorage = require("datastorage")
@@ -31,11 +23,11 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.2.0"
+local VERSION = "0.6.1"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
-    is_doc_only = true,
+    is_doc_only = false,
     version = VERSION,
 }
 
@@ -49,6 +41,7 @@ function BaiduPanSync:init()
     self.identity = BookIdentity:new{ dir = self.settings_dir }
     self.progress = ProgressService:new{
         reader_ui = self.ui,
+        identity = self.identity,
         store = self.store,
         event = Event,
     }
@@ -60,11 +53,36 @@ function BaiduPanSync:init()
         config = self.config,
         device_label = Device.model or "koreader",
     }
+    self.backend_store = require("modules/backend_store"):new{dir=self.settings_dir, config=self.config}
+    self.dav_profile, self.dav_load_error = self.backend_store:load()
+    if self.dav_profile then
+        self.dav_adapter, self.dav_load_error = require("modules/webdav"):new(self.dav_profile)
+    end
     self.ui.menu:registerToMainMenu(self)
 end
 
 function BaiduPanSync:addToMainMenu(menu_items)
     menu_items.baidupansync = Menu.build(self)
+end
+
+function BaiduPanSync:showHome()
+    if self.home_page then return self:refreshHome() end
+    local page=require("ui/home_page"):new{plugin=self}
+    self.home_page=page
+    UIManager:show(page)
+end
+
+function BaiduPanSync:refreshHome()
+    if self.home_page then self.home_page:refresh() end
+end
+
+function BaiduPanSync:closeHome()
+    if self.library_dialog then UIManager:close(self.library_dialog) end
+    if self.home_page then UIManager:close(self.home_page) end
+end
+
+function BaiduPanSync:onCloseDocument()
+    self:closeHome()
 end
 
 function BaiduPanSync:isCurrentBookSupported()
@@ -102,9 +120,11 @@ function BaiduPanSync:_hash_opts()
 end
 
 function BaiduPanSync:onExportProgress()
+    if self.undo_busy or self.dav_busy then return Dialog.info("已有任务正在进行，请稍候。") end
     local context, err = self.progress:capture()
     if not context then return Dialog.error(err) end
     self.engine:export_current(context, self:_hash_opts(), function(export_err, result)
+        self:refreshHome()
         if export_err then
             if export_err.code == "CANCELLED" then
                 return Dialog.info(_("已取消。"))
@@ -125,6 +145,7 @@ function BaiduPanSync:onExportProgress()
 end
 
 function BaiduPanSync:onImportProgress()
+    if self.undo_busy or self.dav_busy then return Dialog.info("已有任务正在进行，请稍候。") end
     local context, err = self.progress:capture()
     if not context then return Dialog.error(err) end
     local entries, list_err = self.exports:list(10)
@@ -142,6 +163,7 @@ function BaiduPanSync:onImportProgress()
                 function() decide(false) end)
         end
         self.engine:import_from_file(entry.path, context, opts, function(import_err, result)
+            self:refreshHome()
             if import_err then
                 if import_err.code == "CANCELLED" then
                     return Dialog.info(_("已取消。"))
@@ -160,13 +182,18 @@ function BaiduPanSync:onImportProgress()
 end
 
 function BaiduPanSync:onUndoRestore()
+    if self.undo_busy or self.dav_busy or self.engine._active then return Dialog.info("已有任务正在进行，请稍候。") end
     local restore_point, rp_err = self.store:get_restore_point()
     if rp_err then return Dialog.error(rp_err) end
     if not restore_point then
         return Dialog.info(_("没有可撤销的进度恢复点。"))
     end
     Dialog.confirm_undo(restore_point, function()
+        if self.undo_busy or self.dav_busy or self.engine._active then return Dialog.info("已有任务正在进行，请稍候。") end
+        self.undo_busy = true
         self.progress:undo(function(undo_err, result)
+            self.undo_busy = false
+            self:refreshHome()
             if undo_err then
                 local extra
                 if result and result.rollback then
@@ -186,5 +213,73 @@ function BaiduPanSync:onUndoRestore()
         end)
     end)
 end
+
+function BaiduPanSync:_cloud(operation, entry)
+    if self.dav_busy or self.undo_busy or self.engine._active then return Dialog.info("已有任务正在进行，请稍候。") end
+    if self.dav_load_error then return Dialog.error(self.dav_load_error) end
+    if not self.dav_adapter then return Dialog.info("请先配置 WebDAV。") end
+    local context
+    if operation~="list" and operation~="download_book" then
+        local e
+        context,e=self.progress:capture()
+        if not context then return Dialog.error(e) end
+    end
+    local backend=self.dav_adapter
+    local cloud=require("modules/cloud_service"):new{backend=backend,identity=self.identity,progress=self.progress,
+        state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader"}
+    local cloud_dialog=require("ui/cloud_dialog")
+    local opts=self:_hash_opts()
+    opts.guard=function()
+        if self.dav_adapter~=backend then return nil,require("modules/errors").new("CONFLICT","后端配置已变化") end
+        return true
+    end
+    opts.confirm=cloud_dialog.confirm
+    local scan_ui
+    local hash_cancelled=opts.is_cancelled
+    opts.is_cancelled=function()return (scan_ui and scan_ui:is_cancelled()) or hash_cancelled()end
+    opts.on_scan_start=function()scan_ui=Dialog.start_scan_progress()end
+    opts.on_scan_finish=function()if scan_ui then scan_ui:close()end end
+    opts.home_dir=G_reader_settings:readSetting("home_dir")
+    opts.get_home=function()return G_reader_settings:readSetting("home_dir")end
+    opts.current_path=function()
+        local reader=require("apps/reader/readerui").instance
+        local document=reader and reader.document or self.ui.document
+        return document and document.file
+    end
+    opts.backup_metadata=require("modules/local_library").backup_metadata
+    self.dav_busy=true
+    local function completed(e,result)
+        if scan_ui then scan_ui:close() end
+        self.dav_busy=false
+        self:refreshHome()
+        if e then return Dialog.error(e) end
+        if operation=="list" then
+            if self.library_dialog then UIManager:close(self.library_dialog) end
+            return cloud_dialog.library(result,function(selected)self:_cloud("download_book",selected)end,nil,function(dialog)
+                self.library_dialog=dialog
+            end,function(dialog)
+                if self.library_dialog==dialog then self.library_dialog=nil end
+            end)
+        elseif operation=="query" then return cloud_dialog.query(result)
+        elseif operation=="download_book" then
+            return cloud_dialog.downloaded(result,function(file)
+                self:closeHome()
+                require("apps/reader/readerui"):showReader(file)
+            end)
+        elseif operation=="upload_book" then
+            return Dialog.info(result.skipped and "已跳过。" or "书籍已发布并回读确认。阅读进度未自动上传。")
+        elseif operation=="upload" then return Dialog.info(result.unchanged and "云端位置相同，已确认当前基线。" or "阅读进度已上传并回读确认。")
+        else return Dialog.info("云端进度已应用并保存基线，可撤销恢复。") end
+    end
+    if operation=="list" then cloud:list(opts,completed)
+    elseif operation=="download_book" then cloud:download_book(entry,opts,completed)
+    elseif operation=="upload_book" then cloud:upload_book(context,opts,completed)
+    else cloud:progress_operation(operation,context,opts,completed) end
+end
+function BaiduPanSync:onUploadCloudProgress()self:_cloud("upload")end
+function BaiduPanSync:onQueryCloudProgress()self:_cloud("query")end
+function BaiduPanSync:onDownloadCloudProgress()self:_cloud("download")end
+function BaiduPanSync:onUploadBook()self:_cloud("upload_book")end
+function BaiduPanSync:onCloudLibrary()self:_cloud("list")end
 
 return BaiduPanSync

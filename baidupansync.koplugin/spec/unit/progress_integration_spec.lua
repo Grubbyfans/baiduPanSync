@@ -137,7 +137,12 @@ describe("Stage B integration: two-device JSON exchange", function()
             dimen = Screen:getSize(),
             document = DocumentRegistry:openDocument(epub),
         }
+        local undo_identity = BookIdentity:new{ dir = tmp_root .. "/undo-identity" }
         service = ProgressService:new{
+            identity = { identify = function(_, path, opts, done)
+                opts.schedule = function(fn) queue[#queue + 1] = fn end
+                undo_identity:identify(path, opts, done)
+            end },
             reader_ui = readerui,
             store = store,
             event = Event,
@@ -226,6 +231,7 @@ describe("Stage B integration: two-device JSON exchange", function()
         end)
         flush_position_checks()
         assert.is_nil(undone.err)
+        assert.is_equal(1, undone.count)
         assert.is_equal(3, readerui.rolling.current_page)
     end)
 
@@ -293,4 +299,57 @@ describe("Stage B integration: two-device JSON exchange", function()
         assert.is_true(imported.info.classification.requires_confirmation)
         assert.is_equal(9, readerui.rolling.current_page)
     end)
+    it("applies cloud progress through the real crengine and keeps undo working", function()
+        local backend=require("spec/fixtures/fake_backend"):new()
+        local endpoint=os.getenv("BPS_DAV_TEST_URL")
+        if endpoint then
+            local DAV=require("modules/webdav")
+            local transport=function(req,done)done(require("modules/dav_transport").perform(req))end
+            local base=assert(DAV:new{root_url=endpoint,username="u",password="p",transport=transport})
+            local namespace="reader-test-"..assert(require("modules/random").hex(16))
+            base:mkdir(namespace,function(e)assert.is_nil(e)end)
+            backend=assert(DAV:new{root_url=endpoint..namespace.."/",username="u",password="p",transport=transport})
+        end
+        local cloud=require("modules/cloud_service"):new{backend=backend,identity=device_a.identity,
+            progress=service,state=device_a.state,config=device_a.config,temp_dir=tmp_root.."/cloud-temp"}
+        local opts={schedule=schedule_hash,confirm=function(_,done)done(true)end}
+        readerui.rolling:onGotoPage(12)
+        local initial=assert(service:capture())
+        local book_uploaded
+        cloud:upload_book(initial,opts,function(e,r)assert.is_nil(e);book_uploaded=r end)
+        flush_position_checks()
+        assert.is_truthy(book_uploaded)
+        local library
+        cloud:list(opts,function(e,r)assert.is_nil(e);library=r end)
+        assert.is_equal(1,#library.entries)
+        opts.home_dir=tmp_root.."/cloud-downloads"
+        assert(lfs.mkdir(opts.home_dir))
+        local downloaded
+        cloud:download_book(library.entries[1],opts,function(e,r)assert.is_nil(e);downloaded=r end)
+        flush_position_checks()
+        assert.is_truthy(downloaded)
+        local downloaded_identity
+        device_a.identity:identify(downloaded.path,{use_cache=false,schedule=schedule_hash},function(e,r)
+            assert.is_nil(e);downloaded_identity=r
+        end)
+        assert.is_equal(book_uploaded.record.bookId,downloaded_identity.book_id)
+        local uploaded
+        cloud:progress_operation("upload",initial,opts,function(e,r)assert.is_nil(e);uploaded=r end)
+        flush_position_checks()
+        assert.is_truthy(uploaded)
+        readerui.rolling:onGotoPage(3)
+        local applied
+        cloud:progress_operation("download",assert(service:capture()),opts,function(e,r)assert.is_nil(e);applied=r end)
+        flush_position_checks()
+        assert.is_truthy(applied)
+        assert.is_equal(12,readerui.document:getPageFromXPointer(readerui.document:getXPointer()))
+        local restore=assert(store:get_restore_point())
+        assert.is_equal(backend.backend_id,restore.book.source_backend_id)
+        local undone=false
+        service:undo(function(e)assert.is_nil(e);undone=true end)
+        flush_position_checks()
+        assert.is_true(undone)
+        assert.is_equal(3,readerui.document:getPageFromXPointer(readerui.document:getXPointer()))
+    end)
+
 end)
