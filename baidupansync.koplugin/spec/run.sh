@@ -44,13 +44,21 @@ cd "$WORK_DIR"
 # Pass the environment on the `env` command line: macOS SIP strips DYLD_* from
 # exported variables before starting the interpreter, but honors assignments
 # given directly to `env`.
-exec env \
-    KO_HOME="$KO_HOME_DIR" \
-    BPS_PLUGIN_ROOT="$PLUGIN_DIR" \
-    BPS_KOREADER_DIR="$KOREADER_DIR" \
-    LUA_PATH="$PLUGIN_DIR/?.lua;$KOREADER_DIR/?.lua;$KOREADER_DIR/spec/unit/?.lua;$KOREADER_DIR/frontend/?.lua;$KOREADER_DIR/plugins/?.lua;$KOREADER_DIR/base/?.lua;$BUILD_DIR/common/?.lua;$BUILD_DIR/spec/rocks/share/lua/5.1/?.lua;$BUILD_DIR/spec/rocks/share/lua/5.1/?/init.lua;;" \
-    LUA_CPATH="$BUILD_DIR/common/?.so;$BUILD_DIR/?.so;$BUILD_DIR/spec/rocks/lib/lua/5.1/?.so;;" \
-    DYLD_LIBRARY_PATH="$BUILD_DIR/staging/lib:$BUILD_DIR/libs" \
-    LD_LIBRARY_PATH="$BUILD_DIR/staging/lib:$BUILD_DIR/libs" \
+RUN_ENV=(
+    KO_HOME="$KO_HOME_DIR"
+    BPS_PLUGIN_ROOT="$PLUGIN_DIR"
+    BPS_KOREADER_DIR="$KOREADER_DIR"
+    LUA_PATH="$PLUGIN_DIR/?.lua;$KOREADER_DIR/?.lua;$KOREADER_DIR/spec/unit/?.lua;$KOREADER_DIR/frontend/?.lua;$KOREADER_DIR/plugins/?.lua;$KOREADER_DIR/base/?.lua;$BUILD_DIR/common/?.lua;$BUILD_DIR/spec/rocks/share/lua/5.1/?.lua;$BUILD_DIR/spec/rocks/share/lua/5.1/?/init.lua;;"
+    LUA_CPATH="$BUILD_DIR/common/?.so;$BUILD_DIR/?.so;$BUILD_DIR/spec/rocks/lib/lua/5.1/?.so;;"
+    DYLD_LIBRARY_PATH="$BUILD_DIR/staging/lib:$BUILD_DIR/libs"
+    LD_LIBRARY_PATH="$BUILD_DIR/staging/lib:$BUILD_DIR/libs"
+)
+
+if [[ "${1:-}" == "--bench" ]]; then
+    shift
+    exec env "${RUN_ENV[@]}" "$LUAJIT" "$PLUGIN_DIR/spec/bench/hash_bench.lua" "$@"
+fi
+
+exec env "${RUN_ENV[@]}" \
     "$LUAJIT" -e 'require("ffi/loadlib"); require("busted.runner") {standalone = false}' \
     /dev/null --output=gtest --loaders=lua --lazy --no-keep-going "$PLUGIN_DIR/spec/unit" "$@"

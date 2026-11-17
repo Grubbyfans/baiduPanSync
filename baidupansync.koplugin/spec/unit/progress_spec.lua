@@ -166,6 +166,25 @@ describe("progress service (Stage A navigation)", function()
             assert.is_equal(book, rp.book.file_path)
         end)
 
+        it("reports restore/apply/check states to the task machine", function()
+            local book = write_book("epub-content")
+            local ui = FakeReader.new{ file = book, current_page = 3 }
+            local service = new_service(ui)
+            local context = service:capture()
+            ui.document:forcePage(1)
+
+            local states = {}
+            local captured = run_completion(function(done)
+                service:apply(context, { type = "xpointer", value = FakeReader.target_xpointer(3, 5) }, done, {
+                    on_state = function(state) states[#states + 1] = state end,
+                })
+            end)
+            assert.is_nil(captured.err)
+            assert.is_equal("persisting_restore", states[1])
+            assert.is_equal("applying", states[2])
+            assert.is_equal("checking_position", states[3])
+        end)
+
         it("reports an exact engine match when no canonicalization occurs", function()
             local book = write_book("epub-content")
             local ui = FakeReader.new{ file = book, current_page = 2, exact = true }

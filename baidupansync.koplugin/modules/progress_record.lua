@@ -1,35 +1,40 @@
 --[[--
-Local reading-progress record (Stage A).
+Cloud reading-progress record, schemaVersion=1 (spec 4.1).
 
-This is the local round-trip format used to prove that XPointer capture and
-restore work on real devices. It is deliberately NOT the cloud progress protocol
-of spec 4.1: Stage A must not implement the full-content SHA-256 identity
-(Stage B). Records therefore carry `recordType = "local-progress"`, a size and,
-when available, the KOReader partial MD5 as a weak matching clue.
+This replaces the Stage A local round-trip record. It requires the full-content
+SHA-256 identity:
 
-Validation is intentionally strict: unknown schema versions and malformed
-fields are rejected instead of being coerced, and importers must not apply a
-record that was not verified by `matches_book()`.
+    book.id == book.contentSha256 == 64 lowercase hex characters
+
+`book.id` is the stable path key; the title is display-only. The `sync` block
+carries a display/diagnostic `revision`, a unique `writeId`, the global
+`deviceId` snapshot and an ISO-8601 `updatedAt` (device time, never used to
+decide which record is newer).
+
+Validation is strict and total: unknown schema versions, missing or extra
+identity mismatches, malformed positions and malformed sync blocks are rejected
+rather than coerced. `raw_fingerprint()` hashes the original bytes, which is
+what conflict detection compares; serialization whitespace counts as a change.
 ]]
 
 local json = require("json")
+
 local Errors = require("modules/errors")
+local Hash = require("modules/hash")
 
 local ProgressRecord = {}
 
 ProgressRecord.SCHEMA_VERSION = 1
-ProgressRecord.RECORD_TYPE = "local-progress"
 ProgressRecord.MAX_BYTES = 64 * 1024
 ProgressRecord.MAX_XPOINTER_BYTES = 8 * 1024
 ProgressRecord.MAX_TEXT_BYTES = 512
-ProgressRecord.MAX_TIMESTAMP_BYTES = 64
+ProgressRecord.MAX_ID_BYTES = 128
 
 local function fail(message)
     return nil, Errors.new(Errors.CODES.INVALID_INPUT, message)
 end
 
 --- Strict UTF-8 validator (rejects overlongs, surrogates, > U+10FFFF).
--- Byte strings in Lua are commonly invalid; do not trust downloaded JSON.
 function ProgressRecord.is_valid_utf8(value)
     if type(value) ~= "string" then return false end
     local i, n = 1, #value
@@ -45,16 +50,16 @@ function ProgressRecord.is_valid_utf8(value)
             local c2, c3 = value:byte(i + 1), value:byte(i + 2)
             if not c2 or not c3 then return false end
             if c2 < 0x80 or c2 > 0xBF or c3 < 0x80 or c3 > 0xBF then return false end
-            if c == 0xE0 and c2 < 0xA0 then return false end -- overlong
-            if c == 0xED and c2 > 0x9F then return false end -- UTF-16 surrogate
+            if c == 0xE0 and c2 < 0xA0 then return false end
+            if c == 0xED and c2 > 0x9F then return false end
             i = i + 3
         elseif c >= 0xF0 and c <= 0xF4 then
             local c2, c3, c4 = value:byte(i + 1), value:byte(i + 2), value:byte(i + 3)
             if not c2 or not c3 or not c4 then return false end
             if c2 < 0x80 or c2 > 0xBF or c3 < 0x80 or c3 > 0xBF
                 or c4 < 0x80 or c4 > 0xBF then return false end
-            if c == 0xF0 and c2 < 0x90 then return false end -- overlong
-            if c == 0xF4 and c2 > 0x8F then return false end -- > U+10FFFF
+            if c == 0xF0 and c2 < 0x90 then return false end
+            if c == 0xF4 and c2 > 0x8F then return false end
             i = i + 4
         else
             return false
@@ -63,7 +68,7 @@ function ProgressRecord.is_valid_utf8(value)
     return true
 end
 
-local function is_control_char_string(value)
+local function has_control(value)
     return value:find("%c") ~= nil or value:find("%z") ~= nil
 end
 
@@ -71,30 +76,48 @@ local function is_uint(value)
     return type(value) == "number" and value == math.floor(value) and value >= 0
 end
 
-local function is_finite_number(value)
+local function is_positive_int(value)
+    return type(value) == "number" and value == math.floor(value) and value >= 1
+end
+
+local function is_finite(value)
     return type(value) == "number" and value == value
         and value ~= math.huge and value ~= -math.huge
 end
 
-local function validate_text(value, field, opts)
-    opts = opts or {}
-    if type(value) ~= "string" then
-        return fail(field .. " must be a string")
-    end
-    if opts.non_empty ~= false and value == "" then
-        return fail(field .. " must not be empty")
+function ProgressRecord.is_sha256_hex(value)
+    return Hash.is_sha256_hex(value)
+end
+
+local function validate_title(value)
+    if type(value) ~= "string" or value == "" then
+        return fail("book.title must be a non-empty string")
     end
     if #value > ProgressRecord.MAX_TEXT_BYTES then
-        return fail(field .. " is longer than " .. ProgressRecord.MAX_TEXT_BYTES .. " bytes")
+        return fail("book.title is longer than "
+            .. ProgressRecord.MAX_TEXT_BYTES .. " bytes")
     end
-    if is_control_char_string(value) then
+    if has_control(value) then
+        return fail("book.title contains control characters")
+    end
+    if not ProgressRecord.is_valid_utf8(value) then
+        return fail("book.title is not valid UTF-8")
+    end
+    return true
+end
+
+local function validate_opaque_id(value, field)
+    if type(value) ~= "string" or value == "" then
+        return fail(field .. " must be a non-empty string")
+    end
+    if #value > ProgressRecord.MAX_ID_BYTES then
+        return fail(field .. " is longer than " .. ProgressRecord.MAX_ID_BYTES .. " bytes")
+    end
+    if has_control(value) then
         return fail(field .. " contains control characters")
     end
     if not ProgressRecord.is_valid_utf8(value) then
         return fail(field .. " is not valid UTF-8")
-    end
-    if opts.no_path_separator and (value:find("/") or value:find("\\")) then
-        return fail(field .. " must not contain path separators")
     end
     return true
 end
@@ -104,7 +127,8 @@ local function validate_xpointer(value)
         return fail("progress.value must be a non-empty string")
     end
     if #value > ProgressRecord.MAX_XPOINTER_BYTES then
-        return fail("progress.value is longer than " .. ProgressRecord.MAX_XPOINTER_BYTES .. " bytes")
+        return fail("progress.value is longer than "
+            .. ProgressRecord.MAX_XPOINTER_BYTES .. " bytes")
     end
     if value:find("%z") then
         return fail("progress.value must not contain NUL")
@@ -115,31 +139,38 @@ local function validate_xpointer(value)
     return true
 end
 
---- Validates a progress position object ({type="xpointer", value=..., percent?}).
--- Shared by the local record, the restore-point store and ProgressService so
--- that no layer accepts a position the others would reject.
+--- Validates a position object ({type="xpointer", value=..., percent?}).
 function ProgressRecord.validate_position(position)
     if type(position) ~= "table" then
-        return fail("position must be an object")
+        return fail("progress must be an object")
     end
     if position.type ~= "xpointer" then
-        return fail("position.type must be \"xpointer\"")
+        return fail("progress.type must be \"xpointer\"")
     end
     local ok, err = validate_xpointer(position.value)
     if not ok then return nil, err end
     if position.percent ~= nil then
-        if not is_finite_number(position.percent) then
-            return fail("position.percent must be a finite number")
+        if not is_finite(position.percent) then
+            return fail("progress.percent must be a finite number")
         end
         if position.percent < 0 or position.percent > 1 then
-            return fail("position.percent must be within 0..1")
+            return fail("progress.percent must be within 0..1")
         end
     end
     return true
 end
 
---- Validates a decoded record table.
--- @treturn boolean|nil true, or nil plus an Errors object
+local function validate_updated_at(value)
+    if type(value) ~= "string" or #value > 64 or has_control(value) then
+        return fail("sync.updatedAt must be a short plain string")
+    end
+    if not value:match("^%d%d%d%d%-%d%d%-%d%dT%d%d:%d%d:%d%d[+-]%d%d:%d%d$") then
+        return fail("sync.updatedAt must be ISO-8601 with a UTC offset")
+    end
+    return true
+end
+
+--- Validates a decoded progress record.
 function ProgressRecord.validate(record)
     if type(record) ~= "table" then
         return fail("record must be a JSON object")
@@ -148,51 +179,46 @@ function ProgressRecord.validate(record)
         return nil, Errors.new(Errors.CODES.UNSUPPORTED,
             "unsupported schemaVersion: " .. tostring(record.schemaVersion))
     end
-    if record.recordType ~= ProgressRecord.RECORD_TYPE then
-        return fail("recordType must be \"" .. ProgressRecord.RECORD_TYPE .. "\"")
-    end
 
     local book = record.book
     if type(book) ~= "table" then return fail("book must be an object") end
-    if book.format ~= "epub" then return fail("book.format must be \"epub\"") end
+    if not ProgressRecord.is_sha256_hex(book.id) then
+        return fail("book.id must be 64 lowercase hex characters")
+    end
+    if not ProgressRecord.is_sha256_hex(book.contentSha256) then
+        return fail("book.contentSha256 must be 64 lowercase hex characters")
+    end
+    if book.id ~= book.contentSha256 then
+        return fail("book.id must equal book.contentSha256")
+    end
+    if book.format ~= "epub" then
+        return fail("book.format must be \"epub\"")
+    end
     if not is_uint(book.size) then
         return fail("book.size must be a non-negative integer")
     end
-    local ok, err = validate_text(book.fileName, "book.fileName",
-        { no_path_separator = true })
-    if not ok then return nil, err end
-    if book.title ~= nil then
-        ok, err = validate_text(book.title, "book.title")
-        if not ok then return nil, err end
-    end
-    if book.partialMd5 ~= nil then
-        if type(book.partialMd5) ~= "string"
-            or #book.partialMd5 ~= 32
-            or not book.partialMd5:match("^[0-9a-f]+$") then
-            return fail("book.partialMd5 must be 32 lowercase hex characters")
-        end
-    end
-
-    local progress = record.progress
-    if type(progress) ~= "table" then return fail("progress must be an object") end
-    ok, err = ProgressRecord.validate_position(progress)
+    local ok, err = validate_title(book.title)
     if not ok then return nil, err end
 
-    if record.exportedAt ~= nil then
-        if type(record.exportedAt) ~= "string"
-            or #record.exportedAt == 0
-            or #record.exportedAt > ProgressRecord.MAX_TIMESTAMP_BYTES
-            or is_control_char_string(record.exportedAt) then
-            return fail("exportedAt must be a short plain string")
-        end
+    ok, err = ProgressRecord.validate_position(record.progress)
+    if not ok then return nil, err end
+
+    local sync = record.sync
+    if type(sync) ~= "table" then return fail("sync must be an object") end
+    if not is_positive_int(sync.revision) then
+        return fail("sync.revision must be a positive integer")
     end
+    ok, err = validate_opaque_id(sync.writeId, "sync.writeId")
+    if not ok then return nil, err end
+    ok, err = validate_opaque_id(sync.deviceId, "sync.deviceId")
+    if not ok then return nil, err end
+    ok, err = validate_updated_at(sync.updatedAt)
+    if not ok then return nil, err end
 
     return true
 end
 
 --- Decodes and validates a record from raw JSON text.
--- @treturn table|nil record
--- @treturn Errors|nil error
 function ProgressRecord.decode(text)
     if type(text) ~= "string" then
         return nil, Errors.new(Errors.CODES.INVALID_INPUT, "record text must be a string")
@@ -210,12 +236,10 @@ function ProgressRecord.decode(text)
     end
     local valid, err = ProgressRecord.validate(decoded)
     if not valid then return nil, err end
-    return decoded
+    return decoded, nil, text
 end
 
 --- Encodes a record after re-validating it.
--- @treturn string|nil JSON text
--- @treturn Errors|nil error
 function ProgressRecord.encode(record)
     local valid, err = ProgressRecord.validate(record)
     if not valid then return nil, err end
@@ -230,7 +254,13 @@ function ProgressRecord.encode(record)
     return text
 end
 
---- ISO-8601 timestamp with the local UTC offset, e.g. 2026-11-16T20:10:00+08:00.
+--- SHA-256 of the exact bytes read from a remote record.
+function ProgressRecord.raw_fingerprint(text)
+    if type(text) ~= "string" then return nil end
+    return Hash.sha256_text(text)
+end
+
+--- ISO-8601 timestamp with the local UTC offset.
 function ProgressRecord.iso_timestamp(now)
     now = now or os.time()
     local local_seconds = os.time(os.date("*t", now))
@@ -243,64 +273,49 @@ function ProgressRecord.iso_timestamp(now)
     return string.format("%s%s%02d:%02d", os.date("%Y-%m-%dT%H:%M:%S", now), sign, hours, minutes)
 end
 
---- Builds a local record from a ProgressService capture context.
--- @tparam table context {book={...}, progress={...}}
--- @tparam[opt] number now epoch seconds
-function ProgressRecord.from_capture(context, now)
+--- Builds a cloud progress record from a capture plus the full identity.
+-- @tparam table context {book={title=...}, progress={...}}
+-- @tparam table identity {content_sha256=..., size=...}
+-- @tparam table opts {revision=positive integer, write_id=string,
+--                     device_id=string, now=epoch seconds}
+function ProgressRecord.build(context, identity, opts)
+    opts = opts or {}
     if type(context) ~= "table" or type(context.book) ~= "table"
         or type(context.progress) ~= "table" then
         return nil, Errors.new(Errors.CODES.INVALID_INPUT, "invalid capture context")
     end
+    if type(identity) ~= "table"
+        or not ProgressRecord.is_sha256_hex(identity.content_sha256)
+        or not is_uint(identity.size) then
+        return nil, Errors.new(Errors.CODES.INVALID_INPUT, "invalid book identity")
+    end
+    local title = context.book.title or context.book.file_name
     local record = {
         schemaVersion = ProgressRecord.SCHEMA_VERSION,
-        recordType = ProgressRecord.RECORD_TYPE,
         book = {
-            title = context.book.title,
-            fileName = context.book.file_name,
+            id = identity.content_sha256,
+            title = title,
             format = "epub",
-            size = context.book.size,
+            size = identity.size,
+            contentSha256 = identity.content_sha256,
         },
         progress = {
             type = "xpointer",
             value = context.progress.value,
         },
-        exportedAt = ProgressRecord.iso_timestamp(now),
+        sync = {
+            revision = opts.revision,
+            writeId = opts.write_id,
+            deviceId = opts.device_id,
+            updatedAt = ProgressRecord.iso_timestamp(opts.now),
+        },
     }
-    if context.book.partial_md5 then
-        record.book.partialMd5 = context.book.partial_md5
-    end
     if context.progress.percent ~= nil then
         record.progress.percent = context.progress.percent
     end
     local valid, err = ProgressRecord.validate(record)
     if not valid then return nil, err end
     return record
-end
-
---- Weak local identity check (Stage A only, NOT a content-identity proof).
--- Size must match; partial MD5 is compared when present on both sides; either
--- file name or title must match so that two same-sized books are not merged.
--- @treturn boolean matches
--- @treturn string|nil reason
-function ProgressRecord.matches_book(record, book)
-    if type(record) ~= "table" or type(record.book) ~= "table"
-        or type(book) ~= "table" then
-        return false, "invalid"
-    end
-    if record.book.size ~= book.size then
-        return false, "size"
-    end
-    if record.book.partialMd5 and book.partial_md5
-        and record.book.partialMd5 ~= book.partial_md5 then
-        return false, "partialMd5"
-    end
-    local same_name = record.book.fileName == book.file_name
-    local same_title = record.book.title ~= nil and book.title ~= nil
-        and record.book.title == book.title
-    if not same_name and not same_title then
-        return false, "name"
-    end
-    return true
 end
 
 return ProgressRecord

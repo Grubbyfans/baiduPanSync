@@ -221,7 +221,8 @@ function ProgressService:_still_same_book(book)
     return attr ~= nil and attr.size == book.size
 end
 
-function ProgressService:_navigate(target_xpointer, expected_book, completion)
+function ProgressService:_navigate(target_xpointer, expected_book, completion, nav_opts)
+    nav_opts = nav_opts or {}
     local target_page = self:_page_of(target_xpointer)
     if not target_page then
         completion(Errors.new(Errors.CODES.INVALID_INPUT,
@@ -294,6 +295,7 @@ function ProgressService:_navigate(target_xpointer, expected_book, completion)
         return
     end
 
+    if nav_opts.on_check_start then pcall(nav_opts.on_check_start) end
     check()
 end
 
@@ -354,8 +356,12 @@ end
 -- @tparam table context context returned by capture()
 -- @tparam table position {type="xpointer", value=..., percent?}
 -- @tparam function completion completion(err, result)
-function ProgressService:apply(context, position, completion)
+function ProgressService:apply(context, position, completion, opts)
     completion = completion or function() end
+    opts = opts or {}
+    local function report(state)
+        if opts.on_state then pcall(opts.on_state, state) end
+    end
     local finished = false
     local function finish(err, result)
         if finished then return end
@@ -393,12 +399,14 @@ function ProgressService:apply(context, position, completion)
         created_at = self:_iso_now(),
         source = "apply_import",
     }
+    report("persisting_restore")
     local saved, save_err = self.store:save_restore_point(restore_point)
     if not saved then
         -- Never navigate without a persisted restore point.
         return finish(save_err)
     end
 
+    report("applying")
     self:_navigate(position.value, before.book, function(nav_err, nav_info)
         if not nav_err then
             return finish(nil, {
@@ -427,7 +435,9 @@ function ProgressService:apply(context, position, completion)
             self.store:clear_restore_point()
             finish(nav_err, { rollback = true, rollback_position = before.progress })
         end)
-    end)
+    end, {
+        on_check_start = function() report("checking_position") end,
+    })
 end
 
 --- Restores the position saved before the last successful apply.

@@ -128,23 +128,36 @@ function ExportStore:list(limit)
     return entries, nil
 end
 
---- Loads and validates a single record.
--- @tparam string path must be inside the export directory
--- @tparam[opt] boolean skip_dir_check internal use by list()
-function ExportStore:load(path, skip_dir_check)
+local function check_path(store, path, skip_dir_check)
     if type(path) ~= "string" or path == "" then
         return nil, Errors.new(Errors.CODES.INVALID_INPUT, "文件路径无效")
     end
     if not skip_dir_check then
-        if path:sub(1, #self.dir + 1) ~= self.dir .. "/" then
+        if path:sub(1, #store.dir + 1) ~= store.dir .. "/" then
             return nil, Errors.new(Errors.CODES.INVALID_INPUT, "只能读取导出目录中的文件")
         end
-        local relative = path:sub(#self.dir + 2)
+        local relative = path:sub(#store.dir + 2)
         if relative:find("%.%./") or relative:find("/%.%.$") or relative:sub(1, 3) == "../" then
             return nil, Errors.new(Errors.CODES.INVALID_INPUT, "文件路径不允许包含上级目录")
         end
     end
-    local text, read_err = FileUtil.read_file(path, ProgressRecord.MAX_BYTES)
+    return true
+end
+
+--- Reads raw bytes of a record file. The bytes are what fingerprints hash.
+-- @tparam string path must be inside the export directory
+-- @tparam[opt] boolean skip_dir_check internal use by list()
+function ExportStore:read(path, skip_dir_check)
+    local ok, err = check_path(self, path, skip_dir_check)
+    if not ok then return nil, err end
+    return FileUtil.read_file(path, ProgressRecord.MAX_BYTES)
+end
+
+--- Loads and validates a single record.
+-- @tparam string path must be inside the export directory
+-- @tparam[opt] boolean skip_dir_check internal use by list()
+function ExportStore:load(path, skip_dir_check)
+    local text, read_err = self:read(path, skip_dir_check)
     if not text then return nil, read_err end
     return ProgressRecord.decode(text)
 end

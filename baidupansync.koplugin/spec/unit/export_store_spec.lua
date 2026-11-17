@@ -12,21 +12,27 @@ describe("export store (local progress JSON directory)", function()
     end
 
     local function record()
+        local digest = string.rep("a", 64)
         return {
             schemaVersion = 1,
-            recordType = "local-progress",
             book = {
+                id = digest,
                 title = "三国演义",
-                fileName = "sanguo.epub",
                 format = "epub",
                 size = 1024,
+                contentSha256 = digest,
             },
             progress = {
                 type = "xpointer",
                 value = "/body/DocFragment[1]/body/div/p[3]/text().5",
                 percent = 0.25,
             },
-            exportedAt = "2026-11-16T20:00:00+08:00",
+            sync = {
+                revision = 3,
+                writeId = string.rep("b", 32),
+                deviceId = "koreader-mac-0123456789abcdef",
+                updatedAt = "2026-11-16T20:00:00+08:00",
+            },
         }
     end
 
@@ -66,7 +72,7 @@ describe("export store (local progress JSON directory)", function()
         assert.is_equal(tmp_root .. "/exports/progress.json", path)
 
         local text = assert(io.open(path, "rb")):read("*a")
-        assert.is_truthy(text:match('"recordType"'))
+        assert.is_truthy(text:match('"contentSha256"'))
         assert.is_nil(lfs.attributes(path .. ".tmp"))
     end)
 
@@ -132,9 +138,12 @@ describe("export store (local progress JSON directory)", function()
         assert(store:save(record(), { filename = "seed.json" }))
         local path = dir .. "/evil.json"
         local file = assert(io.open(path, "wb"))
-        file:write([[{"schemaVersion":1,"recordType":"local-progress",
-            "book":{"fileName":"a.epub","format":"epub","size":-1},
-            "progress":{"type":"xpointer","value":"/body/p[1]","percent":0.5}}]])
+        local digest = string.rep("a", 64)
+        file:write(string.format([[{"schemaVersion":1,
+            "book":{"id":"%s","title":"a","format":"epub","size":-1,"contentSha256":"%s"},
+            "progress":{"type":"xpointer","value":"/body/p[1]","percent":0.5},
+            "sync":{"revision":1,"writeId":"x","deviceId":"y","updatedAt":"2026-11-16T20:00:00+08:00"}}]],
+            digest, digest))
         file:close()
         local loaded, err = store:load(path)
         assert.is_nil(loaded)
