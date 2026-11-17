@@ -101,13 +101,14 @@ function M:uploadSmallJson(path,text,pre,done)
     return self:_request('PUT',path,text,h,done)
 end
 function M:delete(path,pre,done)
-    -- Only probe files and explicitly versioned publication withdrawals are allowed.
-    local publication=type(path)=='string' and path:match('^metadata/([0-9a-f]+)%.json$')
+    -- Only probe files and explicitly versioned book-owned files are allowed.
+    local publication=type(path)=='string' and (path:match('^metadata/([0-9a-f]+)%.json$')
+        or path:match('^progress/([0-9a-f]+)%.json$') or path:match('^books/([0-9a-f]+)%.epub$'))
     if not (type(path)=='string' and path:match('^%.baidupansync%-probe%-%x+/[^/]+$'))
         and not (publication and #publication==64 and pre and pre.etag) then
-        return done(err('FORBIDDEN','仅允许清理探测文件或按强版本撤下指定发布记录'))
+        return done(err('FORBIDDEN','仅允许清理探测文件或按强版本删除指定书籍文件'))
     end
-    if publication and not self.conditional_delete_verified then return done(err('UNSUPPORTED','条件删除尚未验证，拒绝撤下发布记录')) end
+    if publication and not self.conditional_delete_verified then return done(err('UNSUPPORTED','条件删除尚未验证，拒绝删除书籍文件')) end
     local h,e=self:_condition(pre); if not h then return done(e) end
     return self:_request('DELETE',path,nil,h,done)
 end

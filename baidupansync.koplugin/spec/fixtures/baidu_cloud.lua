@@ -53,6 +53,12 @@ function M.new(root,user)
             remote.put(body.path,raw);remote.uploads=remote.uploads+1
             response.path=body.path;response.size=#raw
             if remote.after_create then remote.after_create(body.path,raw)end
+        elseif q.method=='filemanager' then
+            assert(q.opera=='delete' and body.async=='0')
+            local paths=json.decode(body.filelist);assert(#paths==1)
+            if remote.before_delete then remote.before_delete(paths[1])end
+            remote.files[paths[1]]=nil
+            response.info={{path=paths[1],errno=0}}
         elseif q.method=='filemetas' then
             local id=tostring(json.decode(q.fsids)[1]);local path,record
             for p,r in pairs(remote.files)do if r.id==id then path=p;record=r end end

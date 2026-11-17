@@ -122,6 +122,10 @@ function Grid:details(entry)
     dialog=Buttons:new{title=self.title_for(r)..'\n\n文件：'..Meta.filename(r)..
         string.format('\n大小：%.2f MiB\n版本：%s',r.size/1048576,r.bookId:sub(1,12)),buttons={
         {{text=_('下载书籍'),callback=function()UI:close(dialog);self:select(entry)end}},
+        {{text=_('删除云端书籍'),enabled=self.on_delete~=nil,callback=function()
+            UI:close(dialog)
+            if not self.closed and self.on_delete then self.on_delete(entry) end
+        end}},
         {{text=_('返回书库'),callback=function()UI:close(dialog)end}},
     }}
     UI:show(dialog)

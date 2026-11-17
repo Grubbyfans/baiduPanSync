@@ -81,9 +81,9 @@ function M:run(kind,opts,fn,done)
         for i=#self.cleanup,1,-1 do pcall(self.cleanup[i]) end
         self.active=false
         if e then
-            if (kind=='upload_book' or kind=='progress_upload') and task.state=='verifying'
+            if (kind=='upload_book' or kind=='progress_upload' or kind=='delete_book') and task.state=='verifying'
                 and e.code~='UNCERTAIN' and e.outcome~='uncertain' then
-                e=Errors.new('UNCERTAIN','写入已发出但未完整核验：'..e.message,{outcome='uncertain'})
+                e=Errors.new('UNCERTAIN','云端修改已发出但未完整核验：'..e.message,{outcome='uncertain'})
             end
             local state=e.code=='CANCELLED' and 'cancelled' or (e.outcome=='uncertain' or e.code=='UNCERTAIN') and 'uncertain' or 'failed'
             task:transition(state,{code=e.code})
@@ -376,6 +376,68 @@ function M:upload_book(context,opts,done)
         end
         self:step('committing_local')
         return {record=metadata,published=true,previous_content_retained=selected and selected.record.bookId~=identity.book_id}
+    end,done)
+end
+local function same_file(a,b)
+    return (not a and not b) or (a and b and a.type==b.type and a.size==b.size
+        and a.etag==b.etag and a.version==b.version)
+end
+function M:delete_book(entry,opts,done)
+    return self:run('delete_book',opts,function(o)
+        if entry.backend_id~=self.backend.backend_id then fail('CONFLICT','书库条目来自其他后端，请重新打开当前书库') end
+        local valid=A.check(Meta.validate(entry.record))
+        self:step('reading_remote')
+        if self.backend.kind~='baidu' then self:ready(true) end
+        local meta_path='metadata/'..valid.bookId..'.json'
+        local remote=self:read(meta_path,Meta.decode)
+        if not remote or not same(remote,entry) then fail('CONFLICT','选中的云端书籍已变化，请刷新后重新删除') end
+        local paths={valid.path,'progress/'..valid.bookId..'.json',meta_path}
+        local snapshots={}
+        for _,path in ipairs(paths) do
+            local st=self:optional_stat(path)
+            if st then
+                if st.type~='file' then fail('CONFLICT','目标不是文件，已停止删除：'..path) end
+                -- Require a usable version for every file, including the EPUB.
+                local condition=self:condition({stat=st})
+                if not condition then fail('UNSUPPORTED','此服务无法安全确认删除目标版本') end
+                snapshots[path]=st
+            end
+        end
+        if not same_file(entry.book_stat,snapshots[valid.path]) then fail('CONFLICT','云端 EPUB 已变化，请刷新书库后重新删除') end
+        self:step('awaiting_confirm')
+        self:confirm({kind='delete_book',backend=self.backend.root,record=valid,paths=paths,
+            best_effort=self.backend.kind=='baidu'},o)
+        self:step('rechecking');self:guard(nil,o)
+        for _,path in ipairs(paths) do
+            if not same_file(snapshots[path],self:optional_stat(path)) then fail('CONFLICT','确认期间云端文件已变化，未删除：'..path) end
+        end
+        self:step('writing')
+        local deleted={}
+        local ok,e=pcall(function()
+            for _,path in ipairs(paths) do
+                self:guard(nil,o)
+                local st=snapshots[path]
+                if st then
+                    if not same_file(st,self:optional_stat(path)) then fail('CONFLICT','云端文件已变化，停止删除：'..path) end
+                    self:call('delete',path,self:condition({stat=st}))
+                    deleted[#deleted+1]=path
+                    if self:optional_stat(path) then fail('UNCERTAIN','删除后目标仍存在：'..path,'uncertain') end
+                end
+            end
+        end)
+        if not ok then
+            if #deleted>0 or (type(e)=='table' and (e.code=='UNCERTAIN' or e.outcome=='uncertain')) then
+                fail('UNCERTAIN','删除未全部确认，请刷新书库并核对云端文件。已确认删除：'..
+                    (#deleted>0 and table.concat(deleted,'、') or '无')..'。原因：'..(type(e)=='table' and e.message or tostring(e)),'uncertain')
+            end
+            error(e,0)
+        end
+        self:step('verifying');self:guard(nil,o)
+        for _,path in ipairs(paths) do
+            if self:optional_stat(path) then fail('UNCERTAIN','删除期间文件重新出现，请刷新核对：'..path,'uncertain') end
+        end
+        self:step('committing_local')
+        return {record=valid,deleted=deleted}
     end,done)
 end
 function M:download_book(entry,opts,done)

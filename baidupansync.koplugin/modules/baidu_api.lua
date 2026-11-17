@@ -269,11 +269,20 @@ function M:download(relative,destination,progress,done,opts)
 end
 function M:delete(relative,condition,done)
     A.run(function()
-        if condition then fail('UNSUPPORTED','百度未验证条件删除能力') end
-        if not relative:match('^c2%-probe%-%x+/') then fail('FORBIDDEN','C2 只允许清理随机测试目录内的文件') end
+        if condition then
+            if type(condition.version)~='string' or condition.etag or condition.absent then fail('UNSUPPORTED','百度删除需要已确认的文件版本') end
+            local id=relative:match('^books/([0-9a-f]+)%.epub$') or relative:match('^metadata/([0-9a-f]+)%.json$')
+                or relative:match('^progress/([0-9a-f]+)%.json$')
+            if not id or #id~=64 then fail('FORBIDDEN','只允许删除已确认的书籍及关联文件') end
+            self:check_version(relative,condition)
+        elseif not relative:match('^c2%-probe%-%x+/') then
+            fail('FORBIDDEN','删除书籍必须确认目标版本')
+        end
         local v=self:request('https://pan.baidu.com/rest/2.0/xpan/file','POST',
             {method='filemanager',opera='delete'},H.form{async=0,filelist=json.encode({self:path(relative)})},true)
-        if type(v.info)~='table' or #v.info~=1 or v.info[1].errno~=0 then fail('UNCERTAIN','百度测试文件删除未确认') end
+        if type(v.info)~='table' or #v.info~=1 or v.info[1].errno~=0 then fail('UNCERTAIN','百度文件删除未确认') end
+        local e=A.await(function(cb)self:stat(relative,cb)end)
+        if not e or e.code~='NOT_FOUND' then fail('UNCERTAIN','百度文件删除后未确认消失，请刷新核对') end
         return v
     end,done)
 end

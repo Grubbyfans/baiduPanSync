@@ -19,6 +19,15 @@ local function rename(filename,done)
     UI:show(input);input:onShowKeyboard()
 end
 function M.confirm(info,done)
+    if info.kind=='delete_book' then
+        local lines={'书籍：'..M.library_title(info.record),'服务位置：'..info.backend,
+            '将删除云端 EPUB、书库记录和该书的云端阅读进度。本机已下载文件和阅读位置会保留。',
+            '关联文件：\n'..table.concat(info.paths,'\n'),'删除后无法在插件内撤销。'}
+        if info.best_effort then lines[#lines+1]='百度无法原子锁定删除目标，请避免其他设备同时上传或修改这本书。' end
+        UI:show(Confirm:new{title=_('删除云端书籍'),text=table.concat(lines,'\n\n'),
+            ok_text=_('确认删除'),cancel_text=_('取消'),ok_callback=function()done(true)end,cancel_callback=function()done(false)end})
+        return
+    end
     if info.kind=='progress_upload' or info.kind=='progress_download' then
         local remote=info.remote and info.remote.record
         local kinds={first_contact='首次关联',unchanged='与已确认版本一致',remote_changed='云端记录已变化',
@@ -97,9 +106,9 @@ function M.library_entries(result,state)
     end)
     return entries
 end
-function M.library(result,on_download,page,on_show,on_close,state)
+function M.library(result,on_download,page,on_show,on_close,state,on_delete)
     local grid=require('ui/library_grid'):new{result=result,on_download=on_download,
-        page=page,state=state,on_close=on_close,title_for=M.library_title,filter=M.library_entries}
+        page=page,state=state,on_close=on_close,title_for=M.library_title,filter=M.library_entries,on_delete=on_delete}
     if on_show then on_show(grid) end
     UI:show(grid)
     return grid

@@ -157,4 +157,67 @@ local collected
 require('modules/async').run(function()return c:all_entries('metadata/')end,function(e,v)assert(not e);collected=v end)
 assert(pages==2 and #collected==2)
 c.backend.list=original_list
+-- Delete requires explicit confirmation, stable snapshots and backend identity.
+local function deletion_suite(s,entry,files,key,put)
+    local paths={entry.record.path,'progress/'..entry.record.bookId..'.json','metadata/'..entry.record.bookId..'.json'}
+    local function exists(path)return files[key(path)]~=nil end
+    local cancel=run(s,'delete_book',entry,{confirm=function(info,done)
+        assert(info.kind=='delete_book' and #info.paths==3);done(false)
+    end})
+    assert(cancel.e.code=='CANCELLED')
+    for _,p in ipairs(paths)do assert(exists(p))end
+    local before=files[key(paths[2])]
+    local race=run(s,'delete_book',entry,{confirm=function(_,done)put(paths[2],'changed-progress');done(true)end})
+    assert(race.e.code=='CONFLICT' and exists(paths[1]) and exists(paths[3]))
+    if type(before)=='table' then put(paths[2],before.raw)else put(paths[2],before)end
+    local wrong_entry={record=entry.record,backend_id='another-backend'}
+    assert(run(s,'delete_book',wrong_entry,{confirm=function()error('must not confirm')end}).e.code=='CONFLICT')
+    local complete=run(s,'delete_book',entry,{confirm=function(_,done)done(true)end})
+    assert(not complete.e,complete.e and complete.e.message)
+    for _,p in ipairs(paths)do assert(not exists(p))end
+    assert(read(book)==raw,'deleting cloud files must preserve the local book')
+end
+deletion_suite(web,web_list.value.entries[1],dav.files,function(p)return p end,
+    function(p,v)dav.files[p]=v end)
+local fresh=run(c,'list',options)
+local selected
+for _,entry in ipairs(fresh.value.entries)do if entry.record.bookId==id then selected=entry end end
+assert(selected)
+deletion_suite(c,selected,remote.files,function(p)return '/apps/fixture/'..p end,
+    function(p,v)remote.put('/apps/fixture/'..p,v)end)
+-- A partial multi-file deletion must be reported as uncertain, never success.
+assert(not run(web,'upload_book',context,options).e)
+assert(not run(web,'progress_operation','upload',context,{schedule=options.schedule,confirm=function(_,done)done(true)end}).e)
+local partial_entry=run(web,'list',options).value.entries[1]
+dav.hook=function(method,path)
+    if method=='delete' and path:match('^progress/')then return require('modules/errors').new('NETWORK','fixture failure')end
+end
+local partial=run(web,'delete_book',partial_entry,{confirm=function(_,done)done(true)end})
+assert(partial.e.code=='UNCERTAIN' and partial.e.message:find('books/',1,true))
+assert(dav.files['metadata/'..id..'.json'] and dav.files['progress/'..id..'.json'])
+dav.hook=nil
+local without_progress=service(require('spec/fixtures/fake_backend'):new())
+assert(not run(without_progress,'upload_book',context,options).e)
+local no_progress_entry=run(without_progress,'list',options).value.entries[1]
+assert(not run(without_progress,'delete_book',no_progress_entry,{confirm=function(_,done)done(true)end}).e)
+assert(#run(without_progress,'list',options).value.entries==0)
+-- Production WebDAV adapter sends If-Match for book-owned files, never broad deletes.
+local requests=0
+local adapter=assert(require('modules/webdav'):new{root_url='https://example.com/sync/',username='u',password='p',
+    conditional_verified=true,conditional_delete_verified=true,transport=function(req,done)
+        requests=requests+1;assert(req.method=='DELETE' and req.headers['If-Match']=='"confirmed"')
+        done(nil,{status=204})
+    end})
+for _,path in ipairs({'books/'..id..'.epub','progress/'..id..'.json','metadata/'..id..'.json'})do
+    local err;adapter:delete(path,{etag='"confirmed"'},function(e)err=e end);assert(not err)
+end
+assert(requests==3)
+local err;adapter:delete('books/'..id..'.epub',nil,function(e)err=e end)
+assert(err.code=='FORBIDDEN' and requests==3)
+adapter:delete('books/'..id..'.epub',{etag='W/"weak"'},function(e)err=e end)
+assert(err.code=='INVALID_INPUT' and requests==3)
+adapter.conditional_delete_verified=false
+adapter:delete('books/'..id..'.epub',{etag='"confirmed"'},function(e)err=e end)
+assert(err.code=='UNSUPPORTED' and requests==3)
+print('WebDAV/Baidu confirmed deletion, cancellation, races, partial failures and conditional DELETE regressions passed')
 print('Baidu full book publish/list/download/backup/progress/rename, corruption and backend isolation regressions passed')

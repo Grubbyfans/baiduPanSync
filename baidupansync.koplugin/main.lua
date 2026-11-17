@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.8.0: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.8.1: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.8.0"
+local VERSION = "0.8.1"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -177,7 +177,7 @@ function BaiduPanSync:_cloud(operation, entry)
         backend=self.dav_adapter
     else return Dialog.info('当前后端类型无效，请在连接设置中重新选择。') end
     local context
-    if operation~="list" and operation~="download_book" then
+    if operation~="list" and operation~="download_book" and operation~="delete_book" then
         local e
         context,e=self.progress:capture()
         if not context then return Dialog.error(e) end
@@ -220,6 +220,14 @@ function BaiduPanSync:_cloud(operation, entry)
         if scan_ui then scan_ui:close() end
         self.dav_busy=false
         self:refreshHome()
+        if operation=='delete_book' then
+            if not e or e.code~='CANCELLED' then
+                if self.library_dialog then UIManager:close(self.library_dialog);self.library_dialog=nil end
+                self:_cloud('list')
+            end
+            if e then return Dialog.error(e) end
+            return Dialog.info('云端书籍、书库记录和云端进度已删除。本机文件与阅读位置保留。')
+        end
         if e then return Dialog.error(e) end
         if operation=="list" then
             if self.library_dialog then UIManager:close(self.library_dialog) end
@@ -227,7 +235,7 @@ function BaiduPanSync:_cloud(operation, entry)
                 self.library_dialog=dialog
             end,function(dialog)
                 if self.library_dialog==dialog then self.library_dialog=nil end
-            end)
+            end,nil,function(selected)self:_cloud('delete_book',selected)end)
         elseif operation=="query" then return cloud_dialog.query(result)
         elseif operation=="download_book" then
             return cloud_dialog.downloaded(result,function(file)
@@ -241,6 +249,7 @@ function BaiduPanSync:_cloud(operation, entry)
     end
     if operation=="list" then cloud:list(opts,completed)
     elseif operation=="download_book" then cloud:download_book(entry,opts,completed)
+    elseif operation=="delete_book" then cloud:delete_book(entry,opts,completed)
     elseif operation=="upload_book" then cloud:upload_book(context,opts,completed)
     else cloud:progress_operation(operation,context,opts,completed) end
 end

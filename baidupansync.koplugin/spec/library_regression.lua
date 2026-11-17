@@ -79,6 +79,15 @@ grid:search();shown.input='书籍03';shown.buttons[1][3].callback()
 assert(grid.pages==1 and #grid.visible_entries==1 and grid.visible_entries[1]==result.entries[3])
 grid:details(grid.visible_entries[1]);assert(shown.title:find('book3.epub',1,true))
 shown.buttons[1][1].callback();assert(selected==result.entries[3] and not grid.closed)
+local deleted
+grid.on_delete=function(entry)deleted=entry end
+grid:details(grid.visible_entries[1]);shown.buttons[2][1].callback()
+assert(deleted==result.entries[3] and not grid.closed)
+local choice
+Cloud.confirm({kind='delete_book',backend='fixture',record=result.entries[3].record,
+    paths={'books/fixture.epub','metadata/fixture.json','progress/fixture.json'},best_effort=true},function(v)choice=v end)
+assert(shown.text:find('本机已下载文件',1,true) and shown.text:find('无法原子锁定',1,true))
+shown.cancel_callback();assert(choice==false)
 grid.state.query='missing';grid:rebuild();assert(#grid.visible_entries==0 and grid.pages==1)
 grid:goToPage(999);assert(grid.page==1)
 grid.state.query='';grid.state.order='name';grid:rebuild()
