@@ -270,13 +270,26 @@ function M:temporary(parent)
     return path
 end
 function M:verify_remote_book(identity,path,opts)
-    local temp=self:temporary(self.temp_dir)
-    Local.space(self.temp_dir,identity.size)
-    A.call(function(cb)self.backend:download(path,temp,opts.on_transfer,cb,{max_bytes=identity.size})end)
-    local hashopts={use_cache=false,schedule=opts.schedule,is_cancelled=opts.is_cancelled,
-        on_progress=opts.on_progress,on_hash_start=opts.on_hash_start,on_hash_finish=opts.on_hash_finish}
-    local actual=Local.identify(self.identity,temp,hashopts)
-    if actual.book_id~=identity.book_id or actual.size~=identity.size then fail('CONFLICT','已存在的云端 EPUB 与路径摘要不符，拒绝补写发布记录') end
+    self:step('verifying')
+    local stage='准备回读临时文件'
+    local e=A.await(function(done)A.run(function()
+        local temp=self:temporary(self.temp_dir)
+        stage='检查回读目录剩余空间'
+        Local.space(self.temp_dir,identity.size)
+        stage='从云端回读 EPUB'
+        A.call(function(cb)self.backend:download(path,temp,opts.on_transfer,cb,{max_bytes=identity.size})end)
+        stage='核对整书 SHA-256'
+        local hashopts={use_cache=false,schedule=opts.schedule,is_cancelled=opts.is_cancelled,
+            on_progress=opts.on_progress,on_hash_start=opts.on_hash_start,on_hash_finish=opts.on_hash_finish}
+        local actual=Local.identify(self.identity,temp,hashopts)
+        if actual.book_id~=identity.book_id or actual.size~=identity.size then fail('CONFLICT','已存在的云端 EPUB 与路径摘要不符，拒绝补写发布记录') end
+        return true
+    end,done)end)
+    if e then
+        fail('UNCERTAIN','云端 EPUB 已存在，但整书校验未完成，本次书库发布已停止。\n阶段：'..stage..
+            '\n位置：'..self.backend.root..' / '..path..'\n原因：'..e.message..
+            '\n修复原因后再次上传，选择“检查并补全发布”；无需先删除云端 EPUB。','uncertain')
+    end
 end
 function M:upload_book(context,opts,done)
     return self:run('upload_book',opts,function(o)

@@ -10,6 +10,9 @@ package.loaded['ffi/util']={fsyncOpenedFile=function()end}
 local fake={data='longer redirect response tail',position=0,write=function(self,chunk)
     self.data=self.data:sub(1,self.position)..chunk..self.data:sub(self.position+#chunk+1)
     self.position=self.position+#chunk;return true
+end,seek=function(self,whence,offset)
+    if whence=='end' then self.position=#self.data else self.position=offset or 0 end
+    return self.position
 end,close=function()return true end}
 package.loaded['ffi/posix_h']=true
 package.loaded.ffi={C={fileno=function(value)return value end,ftruncate=function(value,size)
@@ -44,6 +47,14 @@ io.open=function(path,mode)
 end
 download=true
 e,r=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
-io.open=open
 assert(not e and r.size==3 and fake.data=='ABC','redirect retries must truncate the existing file descriptor')
+-- Older KOReader without ftruncate can download into a fresh reserved file.
+package.loaded.ffi={C={}}
+fake.data='';fake.position=0
+e,r=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
+assert(not e and fake.data=='ABC')
+-- Nonempty retries must fail explicitly, never retain a tail or reopen a path.
+e=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
+assert(e.code=='IO' and e.message:find('重置下载临时文件',1,true))
+io.open=open
 print('Streaming multipart framing, range hashing, byte limits and redirect truncation regressions passed')

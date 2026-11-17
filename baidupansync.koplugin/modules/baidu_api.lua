@@ -251,6 +251,7 @@ function M:download(relative,destination,progress,done,opts)
                     wait_message='正在从百度网盘下载（点击可取消）…'},cb)
             end)
             if e then error(e,0) end
+            if type(r)~='table' or type(r.status)~='number' then fail('NETWORK','百度下载未收到有效传输结果，请检查 KOReader 日志后重试') end
             if r.status==200 then
                 local actual=destination and r.size or (type(r.body)=='string' and #r.body)
                 if actual~=st.size then fail('CONFLICT','百度文件下载大小不符') end

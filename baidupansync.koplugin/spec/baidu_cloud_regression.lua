@@ -219,5 +219,28 @@ assert(err.code=='INVALID_INPUT' and requests==3)
 adapter.conditional_delete_verified=false
 adapter:delete('books/'..id..'.epub',{etag='"confirmed"'},function(e)err=e end)
 assert(err.code=='UNSUPPORTED' and requests==3)
+-- Uploaded-but-unpublished books recover without re-uploading content after
+-- a child download returns no result (the reported device failure sequence).
+local recovery_remote=Fixture.new('/apps/recovery','3')
+local recovery_api=recovery_remote.api()
+local recovery=service(recovery_api)
+local original_transport=recovery_api.transport
+recovery_api.transport=function(req,done)
+    if req.url:find('/download?',1,true) and req.download_path then return done(nil,nil)end
+    return original_transport(req,done)
+end
+local failed_publish=run(recovery,'upload_book',context,options)
+assert(failed_publish.e.code=='UNCERTAIN')
+assert(failed_publish.e.message:find('从云端回读 EPUB',1,true) and failed_publish.e.message:find('未收到有效',1,true))
+assert(recovery_remote.files['/apps/recovery/books/'..id..'.epub'])
+assert(not recovery_remote.files['/apps/recovery/metadata/'..id..'.json'])
+local upload_count=recovery_remote.uploads
+recovery_api.transport=original_transport
+local recovered=run(recovery,'upload_book',context,{schedule=options.schedule,confirm=function(info,done)
+    assert(info.recovery);done{mode='overwrite',book_id=id}
+end})
+assert(not recovered.e,recovered.e and recovered.e.message)
+assert(recovery_remote.uploads==upload_count+1,'recovery must only upload metadata, not the EPUB again')
+assert(#run(recovery,'list',options).value.entries==1)
 print('WebDAV/Baidu confirmed deletion, cancellation, races, partial failures and conditional DELETE regressions passed')
 print('Baidu full book publish/list/download/backup/progress/rename, corruption and backend isolation regressions passed')

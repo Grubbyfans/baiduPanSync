@@ -63,11 +63,20 @@ function M.perform(req)
         output=io.open(req.download_path,'r+b')
         if not output then if input then input:close() end;return Errors.new('IO','无法打开下载临时文件') end
         if req.reset_download then
-            require('ffi/posix_h')
-            local ffi=require('ffi')
-            if ffi.C.ftruncate(ffi.C.fileno(output),0)~=0 then
+            -- New task-owned files are already empty; older KOReader builds may
+            -- not declare ftruncate. Only a redirect retry needs truncation.
+            local length=output:seek('end')
+            local ok,truncated=true,true
+            if length and length>0 then
+                ok,truncated=pcall(function()
+                    require('ffi/posix_h')
+                    local ffi=require('ffi')
+                    return ffi.C.ftruncate(ffi.C.fileno(output),0)==0
+                end)
+            end
+            if not length or not ok or not truncated or not output:seek('set',0) then
                 output:close();if input then input:close() end
-                return Errors.new('IO','无法清空下载临时文件')
+                return Errors.new('IO','无法重置下载临时文件；请检查 KOReader 系统接口与目录写权限')
             end
         end
     end
@@ -114,45 +123,64 @@ end
 function M.request(req,done)
     local trapper=require('ui/trapper')
     local handle={cancelled=false}
+    local called=false
+    local function finish(e,r)
+        if called then return end;called=true;done(e,r)
+    end
     trapper:wrap(function()
         local dialog,marker,poll
         local UI=require('ui/uimanager')
-        if (req.upload_path or req.download_path) and req.progress_dir then
-            local ok=require('modules/file_util').mkdir_p(req.progress_dir)
-            local token,e=require('modules/random').hex(16)
-            if not ok or not token then return done(e or Errors.new('IO','无法建立传输进度目录')) end
-            marker=req.progress_dir..'/transfer-'..token..'.status'
-            local status_file=io.open(marker,'wb')
-            if not status_file then return done(Errors.new('IO','无法创建传输进度文件')) end
-            status_file:write('0');status_file:close()
-            req.progress_path=marker
-            local total=req.upload_size or req.max_bytes
-            dialog=require('ui/widget/progressbardialog'):new{
-                title=req.upload_path and '正在上传 EPUB' or '正在下载 EPUB',
-                subtitle='点击可取消；写入取消后请重新查询云端状态',progress_max=total>0 and total or nil,
-                refresh_time_seconds=0.5,
-            }
-            dialog:show()
-            poll=function()
-                if not dialog then return end
-                local f=io.open(marker,'rb')
-                if f then local count=tonumber(f:read(32));f:close();if count and total>0 then dialog:reportProgress(math.min(count,total)) end end
+        local ok,err=pcall(function()
+            if (req.upload_path or req.download_path) and req.progress_dir then
+                local ok=require('modules/file_util').mkdir_p(req.progress_dir)
+                local token,e=require('modules/random').hex(16)
+                if not ok or not token then return finish(e or Errors.new('IO','无法建立传输进度目录')) end
+                marker=req.progress_dir..'/transfer-'..token..'.status'
+                local status_file=io.open(marker,'wb')
+                if not status_file then return finish(Errors.new('IO','无法创建传输进度文件')) end
+                status_file:write('0');status_file:close()
+                req.progress_path=marker
+                local total=req.upload_size or req.max_bytes
+                dialog=require('ui/widget/progressbardialog'):new{
+                    title=req.upload_path and '正在上传 EPUB' or '正在下载 EPUB',
+                    subtitle='点击可取消；写入取消后请重新查询云端状态',progress_max=total>0 and total or nil,
+                    refresh_time_seconds=0.5,
+                }
+                dialog:show()
+                poll=function()
+                    if not dialog then return end
+                    local f=io.open(marker,'rb')
+                    if f then local count=tonumber(f:read(32));f:close();if count and total>0 then dialog:reportProgress(math.min(count,total)) end end
+                    UI:scheduleIn(0.2,poll)
+                end
                 UI:scheduleIn(0.2,poll)
             end
-            UI:scheduleIn(0.2,poll)
-        end
-        local completed,e,r=trapper:dismissableRunInSubprocess(function() return M.perform(req) end,
-            dialog or req.wait_message or '正在访问 WebDAV（点击可取消）…')
-        if dialog then dialog:close();dialog=nil;UI:unschedule(poll) end
+            local completed,e,r=trapper:dismissableRunInSubprocess(function()
+                local ok,a,b=pcall(M.perform,req)
+                if not ok then return Errors.exception(a,'网络传输子进程',writing(req)) end
+                return a,b
+            end,
+                dialog or req.wait_message or '正在访问 WebDAV（点击可取消）…')
+            if not completed then
+                handle.cancelled=true
+                local write=writing(req)
+                e=Errors.new(write and 'UNCERTAIN' or 'CANCELLED',
+                    write and '已取消等待，远端写入结果未知，请重新查询' or '已取消请求',
+                    {outcome=write and 'uncertain' or 'failed'})
+            elseif not e and (type(r)~='table' or type(r.status)~='number') then
+                local write=writing(req)
+                e=Errors.new(write and 'UNCERTAIN' or 'NETWORK','网络传输子进程没有返回有效结果；可能异常退出，请检查 KOReader 日志',
+                    {outcome=write and 'uncertain' or 'failed'})
+            end
+            -- Clean up before handing control back to a callback that may start
+            -- another request. Closing normally must never trigger cancellation.
+            if dialog then dialog.dismiss_callback=nil;dialog:close();dialog=nil;UI:unschedule(poll) end
+            if marker then os.remove(marker);marker=nil end
+            finish(e,r)
+        end)
+        if dialog then dialog.dismiss_callback=nil;pcall(dialog.close,dialog);if poll then UI:unschedule(poll) end end
         if marker then os.remove(marker) end
-        if not completed then
-            handle.cancelled=true
-            local write=writing(req)
-            e=Errors.new(write and 'UNCERTAIN' or 'CANCELLED',
-                write and '已取消等待，远端写入结果未知，请重新查询' or '已取消请求',
-                {outcome=write and 'uncertain' or 'failed'})
-        end
-        done(e,r)
+        if not ok then finish(Errors.exception(err,'网络传输',writing(req))) end
     end)
     return handle
 end

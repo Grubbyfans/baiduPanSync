@@ -22,8 +22,7 @@ function M.resume(co,...)
         completions[co]=nil
         if done then
             if ok then done(nil,value)
-            else done(type(value)=='table' and value.code and value or
-                Errors.new('IO','任务异常，已停止；请重新核对本地和远端状态')) end
+            else done(Errors.exception(value)) end
         end
     end
 end
