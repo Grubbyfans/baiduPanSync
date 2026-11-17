@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.6.2: manual WebDAV EPUB and reading-progress synchronization.
+BaiduPanSync 0.6.3: manual WebDAV EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots; local JSON exchange remains
 available separately. Baidu integration is deferred by the user.
 ]]
@@ -23,7 +23,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.6.2"
+local VERSION = "0.6.3"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",

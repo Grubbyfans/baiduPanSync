@@ -66,9 +66,18 @@ function M.reserve(directory)
     return path,dir
 end
 function M.space(root,size)
-    local total,_,available=Util.df(root)
-    if not total or not available then M.fail('IO','无法确认下载目录剩余空间') end
-    if available<size+1024*1024 then M.fail('IO','下载目录可用空间不足（含临时文件余量）') end
+    local ok,total,free,available=pcall(Util.df,root)
+    -- Older KOReader builds return only total and free bytes. Prefer the
+    -- unprivileged available count whenever the newer API supplies it.
+    if ok and available==nil then available=free end
+    local function valid(value)
+        return type(value)=='number' and value==value and value>=0 and value<math.huge
+    end
+    if not ok or not valid(total) or not valid(available) then
+        local reason=not ok and tostring(total) or (type(free)=='string' and free or '空间接口未返回有效数值')
+        M.fail('IO','无法确认下载目录剩余空间：'..root..'\n原因：'..reason)
+    end
+    if available<size+1024*1024 then M.fail('IO','下载目录可用空间不足（含临时文件余量）：'..root) end
 end
 -- Move only the old EPUB settings files, without parsing or rewriting Lua.
 -- All configured KOReader locations are checked before replacing different bytes.
