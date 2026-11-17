@@ -316,6 +316,16 @@ function M:upload_book(context,opts,done)
         local metadata={schemaVersion=1,status='ready',bookId=identity.book_id,contentSha256=identity.book_id,
             fileName=context.book.file_name,displayFileName=filename,title=context.book.title or context.book.file_name,
             size=identity.size,path=book_path,uploadedAt=Record.iso_timestamp(self.now()),verificationLevel=existing_book and 'sha256' or 'size'}
+        if o.make_cover then
+            local ok,cover=pcall(o.make_cover,context.book.file_path,self:temporary(self.temp_dir))
+            if ok and require('modules/book_cover').decode(cover) then metadata.coverPng=cover end
+        end
+        -- Re-publishing a title on a device without a cover renderer must not
+        -- discard a thumbnail already stored by another device.
+        if not metadata.coverPng and own and require('modules/book_cover').decode(own.record.coverPng) then
+            metadata.coverPng=own.record.coverPng
+        end
+        self:guard(context,o)
         local raw=A.check(Meta.encode(metadata))
         -- The sidecar becomes visible only after the EPUB has been confirmed.
         local e=A.await(function(cb)self.backend:uploadSmallJson(meta_path,raw,self:condition(own),cb)end)

@@ -66,7 +66,7 @@ describe('persistent plugin page',function()
     it('keeps the library and current page open when choosing a book to download',function()
         plugin:showHome();local home=plugin.home_page
         local result={entries={},issues={},backend='http://test/sync/'}
-        for i=1,9 do result.entries[i]={record={fileName='book'..i..'.epub',bookId=string.rep('a',64),size=100}}end
+        for i=1,12 do result.entries[i]={record={title=string.format("Book %02d",i),fileName='book'..i..'.epub',bookId=string.rep('a',64),size=100}}end
         local selected
         local function on_show(dialog)plugin.library_dialog=dialog end
         local function on_close(dialog)if plugin.library_dialog==dialog then plugin.library_dialog=nil end end
@@ -74,10 +74,10 @@ describe('persistent plugin page',function()
         -- Explicitly paginate to the second page, then choose its book.
         UI:close(first)
         local second=CloudUI.library(result,function(entry)selected=entry end,2,on_show,on_close)
-        second.buttons[2][1].callback()
-        assert.is_equal(result.entries[7],selected)
+        second:select(second.visible_entries[1])
+        assert.is_equal(result.entries[second.layout_info.count+1],selected)
         assert.is_true(visible(second));assert.is_true(visible(home))
-        second.buttons[#second.buttons][2].callback()
+        second:close()
         assert.is_nil(plugin.library_dialog);assert.is_true(visible(home))
     end)
     it('renders the native page at screen size',function()

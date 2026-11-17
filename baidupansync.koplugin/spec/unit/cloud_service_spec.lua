@@ -70,6 +70,19 @@ describe('WebDAV D/E/F orchestration',function()
         assert.is_equal(1,progress.applies)
         assert.is_equal(id,context.book.content_sha256)
     end)
+    it('publishes a bounded thumbnail and preserves it when the renderer is unavailable',function()
+        local cover='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNoAAAAggCBd81ytgAAAABJRU5ErkJggg=='
+        local uploaded=run('upload_book',context,options{make_cover=function()return cover end})
+        assert.is_nil(uploaded.e)
+        local list=run('list',options());assert.is_nil(list.e)
+        assert.is_equal(cover,list.value.entries[1].record.coverPng)
+        local again=run('upload_book',context,options{
+            make_cover=function()error('renderer unavailable')end,
+            confirm=function(_,done)done{mode='overwrite',book_id=list.value.entries[1].record.bookId}end,
+        })
+        assert.is_nil(again.e)
+        list=run('list',options());assert.is_equal(cover,list.value.entries[1].record.coverPng)
+    end)
     it('reconfirms a changed same-revision record instead of reusing approval',function()
         local first=run('progress_operation','upload',context,options());assert.is_nil(first.e)
         position='/body/p[8]/text().0';context=capture()

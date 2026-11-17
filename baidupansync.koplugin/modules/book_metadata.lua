@@ -3,6 +3,9 @@ local Hash=require('modules/hash')
 local Record=require('modules/progress_record')
 local Errors=require('modules/errors')
 local M={}
+-- coverPng is an optional base64 thumbnail. It is decorative: older records
+-- remain valid, and an invalid thumbnail falls back to the title in the UI.
+-- book_cover bounds bytes and PNG dimensions before handing data to a decoder.
 local function invalid()return nil,Errors.new('INVALID_INPUT','书籍发布记录格式或内容身份无效')end
 function M.text(s)
     return type(s)=='string' and #s>0 and #s<=512 and not s:find('%c') and Record.is_valid_utf8(s)

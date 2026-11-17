@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.6.6: manual WebDAV EPUB and reading-progress synchronization.
+BaiduPanSync 0.6.7: manual WebDAV EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu integration is deferred by the user.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.6.6"
+local VERSION = "0.6.7"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -160,6 +160,7 @@ function BaiduPanSync:_cloud(operation, entry)
         return true
     end
     opts.confirm=cloud_dialog.confirm
+    if operation=='upload_book' then opts.make_cover=require('modules/book_cover').extract end
     local scan_ui
     local hash_cancelled=opts.is_cancelled
     opts.is_cancelled=function()return (scan_ui and scan_ui:is_cancelled()) or hash_cancelled()end
