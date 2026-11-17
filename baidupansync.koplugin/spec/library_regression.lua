@@ -25,7 +25,8 @@ local function open(r,page,state)return Cloud.library(r,function(e)selected=e en
 local first=open(result)
 assert(first.title:find('1 / 2',1,true))
 assert(not first.title:find(result.backend,1,true))
-assert(first.buttons[2][1].text:find('book1',1,true))
+assert(first.buttons[2][1].text:find('书籍1',1,true))
+assert(not first.buttons[2][1].text:find('book1',1,true))
 assert(not first.buttons[2][1].text:find(string.rep('1',8),1,true))
 first.buttons[2][1].callback();assert(selected==result.entries[1] and not first.closed)
 first.buttons[#first.buttons-1][2].callback()
@@ -46,6 +47,7 @@ assert(current.title:find('9 本',1,true))
 local filtered=Cloud.library_entries(result,{query='book.',order='name'})
 assert(#filtered==0,'search must treat punctuation literally')
 result.entries[2].record.fileName='book1.epub'
+result.entries[2].record.title='书籍1'
 local duplicates=open(result)
 assert(duplicates.buttons[2][1].text:find('版本',1,true))
 result.issues={{path='metadata/broken.json'}}
@@ -56,4 +58,14 @@ assert(info:find('metadata/broken.json',1,true))
 warning.buttons[#warning.buttons][2].callback();assert(current==nil)
 local blank=open({entries={},issues={},backend='test'})
 assert(blank.title:find('书库为空',1,true))
+assert(Cloud.library_title{title=' 三国演义 ',fileName='sanguoyanyi.epub'}=='三国演义')
+assert(Cloud.library_title{title='  ',fileName='三国演义.epub'}=='三国演义')
+assert(Cloud.library_title{fileName='sanguoyanyi.epub'}=='sanguoyanyi')
+local chinese={entries={
+    {record={title='三国演义',fileName='zzz.epub',size=1,bookId='a'}},
+    {record={title='西游记',fileName='aaa.epub',size=1,bookId='b'}},
+}}
+assert(Cloud.library_entries(chinese,{order='name'})[1]==chinese.entries[1])
+assert(Cloud.library_entries(chinese,{query='zzz'})[1]==chinese.entries[1])
+assert(Cloud.library_entries(chinese,{query='三国'})[1]==chinese.entries[1])
 print('library search, sorting and pagination regressions passed')

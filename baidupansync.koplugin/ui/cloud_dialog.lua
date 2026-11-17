@@ -69,6 +69,11 @@ function M.confirm(info,done)
 end
 -- Filtering and sorting operate on a copy; download callbacks retain the exact
 -- published entry (including its version snapshot).
+function M.library_title(record)
+    local title=type(record.title)=='string' and record.title:match('^%s*(.-)%s*$') or ''
+    if title=='' then title=Meta.filename(record) end
+    return (title:gsub('%.[Ee][Pp][Uu][Bb]$',''))
+end
 function M.library_entries(result,state)
     local entries={}
     local query=(state.query or ''):lower()
@@ -81,8 +86,10 @@ function M.library_entries(result,state)
     end
     table.sort(entries,function(a,b)
         if state.order=='size' and a.record.size~=b.record.size then return a.record.size>b.record.size end
-        local an,bn=Meta.filename(a.record):lower(),Meta.filename(b.record):lower()
+        local an,bn=M.library_title(a.record):lower(),M.library_title(b.record):lower()
         if an~=bn then return an<bn end
+        local af,bf=Meta.filename(a.record):lower(),Meta.filename(b.record):lower()
+        if af~=bf then return af<bf end
         return a.record.bookId<b.record.bookId
     end)
     return entries
@@ -121,15 +128,15 @@ function M.library(result,on_download,page,on_show,on_close,state)
     }
     local names={}
     for _,entry in ipairs(entries) do
-        local name=Meta.filename(entry.record)
+        local name=M.library_title(entry.record)
         names[name]=(names[name] or 0)+1
     end
     for i=(page-1)*perpage+1,math.min(page*perpage,#entries) do
         local entry=entries[i]
-        local name=Meta.filename(entry.record)
+        local name=M.library_title(entry.record)
         local detail=string.format('EPUB · %.2f MiB',entry.record.size/1048576)
         if names[name]>1 then detail=detail..' · 版本 '..entry.record.bookId:sub(1,8) end
-        buttons[#buttons+1]={{text=name:gsub('%.[Ee][Pp][Uu][Bb]$','')..'\n'..detail,
+        buttons[#buttons+1]={{text=name..'\n'..detail,
             callback=function()on_download(entry)end}}
     end
     if pages>1 then
