@@ -44,4 +44,9 @@ plugin.isCurrentBookSupported=function()return false end
 page:refresh()
 for i=2,5 do assert(not page.item_table[i].select_enabled)end
 page:onClose();page:onClose();assert(page.closed)
+page.closed=false;page.section=nil;plugin.active_backend='baidu';plugin.dav_adapter=nil
+plugin.hasUsableBaidu=function()return true end;plugin.isCurrentBookSupported=function()return true end
+page:refresh();assert(page.item_table[1].select_enabled and page.item_table[2].select_enabled)
+plugin.hasUsableBaidu=function()return false end;page:refresh()
+assert(not page.item_table[1].select_enabled and page.item_table[4].select_enabled)
 print('grouped home navigation regressions passed')

@@ -10,7 +10,7 @@ function M.configure(plugin)
     local p,e=plugin.baidu_store:load();if e then return Dialog.error(e) end
     p=p or {}
     local input
-    input=MultiInput:new{title='百度应用配置（C2）',fields={
+    input=MultiInput:new{title='百度应用配置',fields={
         {text=p.app_key or '',hint='AppKey / API Key'},
         {text=p.secret_key or '',hint='SecretKey（只保存在阅读器）',text_type='password'},
         {text=p.app_dir or '',hint='实际应用目录，例如 /apps/你的应用名称'},
@@ -50,7 +50,7 @@ function M.authorize(plugin,phone_setup)
         if page and not page.closed then page.completed=true;page:close() end
         plugin:refreshHome()
         if err then Dialog.error(err)
-        else Dialog.info('百度授权成功，已核对用户身份并保存凭据。\n可运行 C2 测试；百度书籍与进度同步尚未开放。') end
+        else Dialog.info('百度授权成功，已核对用户身份并保存凭据。\n可运行 C2 测试；运行连接测试后，可在连接设置中切换到百度网盘。') end
     end
     local function submit(code,done)
         if not auth then return done(E.new('CONFLICT','授权会话未就绪')) end
@@ -115,9 +115,9 @@ function M.probe(plugin)
         p.last_probe=result
         local saved,save_err=plugin.baidu_store:save(p)
         if not saved then return Dialog.error(save_err,'测试已完成，但本地验收记录保存失败。') end
-        Dialog.info('百度 C2 测试通过：用户身份、建目录、上传、枚举、下载回读及删除测试 JSON。\n'..
+        Dialog.info('百度网盘连接验证通过：用户身份、建目录、上传、枚举、下载回读及删除测试 JSON。\n'..
             '目录：'..result.directory..'\n测试文件已删除，空测试目录保留。\n'..
-            '未验证原子条件写入，未接入真实书籍或进度同步。')
+            '不支持已验证的原子条件写入；并发进度上传只能尽力避免覆盖。')
     end)
 end
 function M.show(plugin)
@@ -127,8 +127,8 @@ function M.show(plugin)
         or ('已授权：'..(p.account_name~='' and p.account_name or p.user_id))
     local dialog
     local function run(fn)UI:close(dialog);fn(plugin)end
-    dialog=Buttons:new{title='百度网盘 · C2 接入验证\n'..status..'\n当前后端：'..
-        (plugin.active_backend=='baidu' and '百度（C2，仅授权与测试）' or 'WebDAV'),buttons={
+    dialog=Buttons:new{title='百度网盘 · 授权与连接\n'..status..'\n当前后端：'..
+        (plugin.active_backend=='baidu' and '百度网盘' or 'WebDAV'),buttons={
         {{text='手机扫码配置与授权',callback=function()UI:close(dialog);M.authorize(plugin,true)end}},
         {{text='在阅读器配置应用',callback=function()run(M.configure)end}},
         {{text='使用现有配置授权 / 重新授权',callback=function()run(M.authorize)end}},
@@ -140,7 +140,7 @@ end
 function M.switch_backend(plugin)
     if busy(plugin) then return Dialog.info('请先完成或取消当前任务。') end
     local p,e=plugin.baidu_store:load();if e then return Dialog.error(e) end
-    local ready=p and p.backend_id and p.last_probe and p.last_probe.backend_id==p.backend_id
+    local ready=p and p.backend_id and type(p.last_probe)=='table' and p.last_probe.backend_id==p.backend_id
         and type(p.expires_at)=='number' and os.time()<p.expires_at-30
     local dialog
     local function choose(kind,id)
@@ -152,14 +152,14 @@ function M.switch_backend(plugin)
         plugin.active_backend=kind
         if plugin.library_dialog then UI:close(plugin.library_dialog) end
         UI:close(dialog);plugin:refreshHome()
-        Dialog.info(kind=='baidu' and '已切换到百度 C2。只开放授权与测试，书籍和阅读进度操作暂不可用；不会改为写入 WebDAV。'
+        Dialog.info(kind=='baidu' and '已切换到百度网盘。书籍与阅读进度只写入当前百度应用目录，不写入 WebDAV。'
             or '已切换到 WebDAV。请重新打开云端书库或查询进度。')
     end
     dialog=Buttons:new{title='切换后端\n各后端凭据与进度基线独立，不迁移数据。',buttons={
         {{text='WebDAV',enabled=plugin.dav_adapter~=nil,callback=function()
             if plugin.dav_adapter then choose('webdav',plugin.dav_adapter.backend_id) end
         end}},
-        {{text=ready and '百度网盘（C2，仅授权与测试）' or '百度网盘（请先授权并通过 C2 测试）',enabled=ready and true or false,
+        {{text=ready and '百度网盘' or '百度网盘（请先授权并通过连接测试）',enabled=ready and true or false,
             callback=function()if ready then choose('baidu',p.backend_id) end end}},
         {{text='取消',callback=function()UI:close(dialog)end}},
     }}

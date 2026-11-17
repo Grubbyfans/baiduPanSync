@@ -2,16 +2,16 @@
 
 基于 KOReader 的书籍与阅读进度同步插件（目标后端：自建 WebDAV、百度网盘）。
 
-- 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.7，开发基线）
+- 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.8，开发基线）
 - 文档分析：[分析结果.md](分析结果.md)
-- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.7.2：WebDAV 进度同步、当前 EPUB 上传、书库下载）
+- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.8.0：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
 - 安装/使用/测试说明：[baidupansync.koplugin/README.md](baidupansync.koplugin/README.md)
 - 阶段 A 验收记录：[阶段A验收记录.md](阶段A验收记录.md)（已通过）
 - 阶段 B 验收记录：[阶段B验收记录.md](阶段B验收记录.md)
 
 ## 当前状态
 
-C1 已由用户确认通过。D/E/F 已连续实现，支持 WebDAV 云端进度上传/查询/应用、当前 EPUB 发布和云端书库下载，包含 home_dir、递归同名比较、安全覆盖/重命名。此前完整插件基线测试 186/186 通过；当前 C2 独立回归与真实局域网 HTTP 套接字验证通过，百度真实应用及目标设备验收待完成。当前 Windows 的 Node 测试受符号链接权限限制未全过，详见 [阶段C2验收记录.md](阶段C2验收记录.md)。未推进百度书籍/进度专项及 G。WebDAV 主线详见 [阶段DEF验收记录.md](阶段DEF验收记录.md)。
+C1 已由用户确认通过。WebDAV 与百度网盘均已实现手动进度上传/查询/应用、EPUB 发布、封面书库与安全下载。0.8.0 的离线回归覆盖百度完整流程、分片传输、冲突、完整摘要回读及后端隔离；真实百度应用、KOReader GUI 和目标设备验收仍待完成。详见 [阶段百度DEF验收记录.md](阶段百度DEF验收记录.md) 和 [阶段DEF验收记录.md](阶段DEF验收记录.md)。当前 Windows 的 Node 服务测试存在符号链接权限限制，历史记录见 [阶段C2验收记录.md](阶段C2验收记录.md)。阶段 G 尚未推进。
 
 ## 运行测试
 
@@ -24,6 +24,8 @@ KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
 ## 本地 WebDAV 测试服务
 
 已提供零依赖 Node.js 服务：[serve/README.md](serve/README.md)。修改 `serve/config.json` 的端口、账户和存储目录后，运行 `node serve/server.js`，可测试插件的 C1 上传下载及条件写入。
+
+0.8.0 开放百度网盘书籍上传、书库下载与手动进度同步。上传使用 4 MiB 分片，发布前整书回读校验；不同内容同名书籍另存名称，进度覆盖提示并发风险。
 
 0.7.2 修复部分 KOReader 版本找不到可信 CA 的问题，兼容自带证书路径并附带 Mozilla CA 后备包，保留证书链与主机名校验。
 

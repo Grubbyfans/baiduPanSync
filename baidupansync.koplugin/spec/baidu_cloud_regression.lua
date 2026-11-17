@@ -1,0 +1,160 @@
+package.path='baidupansync.koplugin/?.lua;'..package.path
+local function attr(path,key)local a=fixture_attributes(path);return key and a and a[key] or a end
+package.loaded['libs/libkoreader-lfs']={attributes=attr,symlinkattributes=attr,mkdir=fixture_mkdir,rmdir=fixture_rmdir,
+    dir=function(path)local names=fixture_listdir(path);local i=0;return function()i=i+1;return names[i]end end}
+package.loaded['ffi/util']={realpath=fixture_realpath,basename=function(p)return p:match('([^/]+)$')end,
+    fsyncOpenedFile=function()end,df=function()return 1e10,1e10,1e10 end}
+package.loaded.ffi={cdef=function()end,cast=function(_,v)return v end,
+    C={open=fixture_exclusive_open,close=fixture_close,O_CREAT=64,O_WRONLY=1}}
+package.loaded['ffi/posix_h']=true
+package.loaded.jit={os='Linux'};jit=package.loaded.jit
+package.loaded.bit={bor=function(...)local n=0;for _,v in ipairs({...})do n=n+v end;return n end}
+local nonce=0
+package.loaded['modules/random']={hex=function(n)nonce=nonce+1;return string.format('%0'..(n*2)..'x',nonce)end}
+package.loaded['socket.url']={parse=function(url)
+    local scheme,host=url:match('^(https?)://([^/]+)');return {scheme=scheme,host=host}
+end,absolute=function(_,url)return url end}
+local Cloud=require('modules/cloud_service')
+local Identity=require('modules/book_identity')
+local Config=require('modules/config_store')
+local State=require('modules/sync_state')
+local Record=require('modules/progress_record')
+local Fixture=require('spec/fixtures/baidu_cloud')
+local json=require('json')
+local Hash=require('modules/hash')
+local root=fixture_temp_dir
+fixture_mkdir(root..'/downloads')
+local book=root..'/source.epub'
+local function write(path,raw)local f=assert(io.open(path,'wb'));f:write(raw);f:close()end
+local function read(path)local f=assert(io.open(path,'rb'));local raw=f:read('*a');f:close();return raw end
+local raw='PK-test-full-book-with-中文-title'
+write(book,raw)
+local position='/body/p[3]/text().0'
+local context={book={file_path=book,file_name='same.epub',title='中文书籍',format='epub',size=#raw,
+    mtime=fixture_attributes(book).modification},progress={type='xpointer',value=position,percent=0.3}}
+local applied=0
+local progress={_check_context=function()return true end,apply=function(_,ctx,p,cb,opts)
+    for _,s in ipairs({'persisting_restore','applying','checking_position'})do opts.on_state(s)end
+    applied=applied+1;position=p.value;cb(nil,{})
+end}
+local remote=Fixture.new('/apps/fixture','9007199254740993123')
+local identity=Identity:new{dir=root..'/state'}
+local state=State:new{dir=root..'/state'}
+local config=Config:new{dir=root..'/state'}
+local function service(backend)
+    local c=Cloud:new{backend=backend or remote.api(),identity=identity,progress=progress,state=state,
+        config=config,temp_dir=root..'/transfers'}
+    c.backend.operation_opts={schedule=function(cb)cb()end}
+    return c
+end
+local options={schedule=function(cb)cb()end,home_dir=root..'/downloads',confirm=function(info,done)
+    if info.kind=='upload_book' then done{mode='overwrite',book_id=info.identity.book_id}
+    elseif info.kind=='download_book' then done{mode='overwrite',path=info.candidates[1].path}
+    else assert(info.kind~='progress_upload' or info.best_effort);done(true)end
+end}
+local function run(c,method,...)
+    local args={...};local result,count=nil,0
+    args[#args+1]=function(e,v)result={e=e,value=v};count=count+1 end
+    c[method](c,unpack(args));assert(count==1 and result)
+    return result
+end
+local c=service()
+local uploaded=run(c,'upload_book',context,options)
+assert(not uploaded.e,uploaded.e and uploaded.e.message)
+assert(uploaded.value.record.verificationLevel=='sha256')
+local id=uploaded.value.record.bookId
+assert(remote.files['/apps/fixture/books/'..id..'.epub'].raw==raw)
+local listed=run(c,'list',options);assert(not listed.e and #listed.value.entries==1)
+assert(listed.value.entries[1].record.title=='中文书籍')
+local downloaded=run(c,'download_book',listed.value.entries[1],options)
+assert(not downloaded.e,downloaded.e and downloaded.e.message)
+assert(read(downloaded.value.path)==raw)
+-- A second download explicitly confirms the existing same-name path and backs it up.
+downloaded=run(c,'download_book',listed.value.entries[1],options)
+assert(not downloaded.e and read(downloaded.value.backup)==raw)
+local sent=run(c,'progress_operation','upload',context,options)
+assert(not sent.e,sent.e and sent.e.message)
+context.progress={type='xpointer',value='/body/p[7]/text().0',percent=0.7}
+sent=run(c,'progress_operation','upload',context,options)
+assert(not sent.e and sent.value.record.sync.revision==2)
+local received=run(c,'progress_operation','download',context,options)
+assert(not received.e and applied==1 and position=='/body/p[7]/text().0')
+-- Re-publishing identical content updates the sidecar without replacing the EPUB.
+local again=run(c,'upload_book',context,options)
+assert(not again.e,again.e and again.e.message)
+-- Different identities with the same filename require rename; no old sidecar is withdrawn.
+write(book,'PK-other-content')
+context.book.size=#'PK-other-content';context.book.mtime=fixture_attributes(book).modification
+local refused=run(c,'upload_book',context,{schedule=options.schedule,confirm=function(info,done)
+    assert(info.no_replace_other);done{mode='overwrite',book_id=id}
+end})
+assert(refused.e.code=='UNSUPPORTED')
+local renamed=run(c,'upload_book',context,{schedule=options.schedule,confirm=function(_,done)done{mode='rename',name='另一册.epub'}end})
+assert(not renamed.e,renamed.e and renamed.e.message)
+assert(remote.files['/apps/fixture/metadata/'..id..'.json'])
+-- Corrupt uploaded bytes are detected by full readback before sidecar publication.
+write(book,'PK-corrupted-in-transit')
+context.book.size=#'PK-corrupted-in-transit';context.book.mtime=fixture_attributes(book).modification
+local bad_id=Hash.sha256_text('PK-corrupted-in-transit')
+remote.after_create=function(path,value)
+    if path:match('%.epub$')then remote.put(path,'X'..value:sub(2))end
+end
+local corrupted=run(c,'upload_book',context,{schedule=options.schedule,confirm=function(_,done)done{mode='rename',name='corrupt.epub'}end})
+assert(corrupted.e and not remote.files['/apps/fixture/metadata/'..bad_id..'.json'])
+remote.after_create=nil
+write(book,raw);context.book.size=#raw;context.book.mtime=fixture_attributes(book).modification
+local confirmations=0
+context.progress={type='xpointer',value='/body/p[9]/text().0',percent=0.9}
+remote.after_precreate=function(path)
+    if path:match('^/apps/fixture/progress/') then
+        local record=assert(Record.decode(remote.files[path].raw))
+        record.sync.writeId='racer-before-commit';record.sync.revision=record.sync.revision+1
+        remote.put(path,assert(Record.encode(record)))
+    end
+end
+local raced=run(c,'progress_operation','upload',context,{schedule=options.schedule,confirm=function(info,done)
+    confirmations=confirmations+1;done(confirmations==1)
+end})
+assert(raced.e.code=='CANCELLED' and confirmations==2)
+assert(Record.decode(remote.files['/apps/fixture/progress/'..id..'.json'].raw).sync.writeId=='racer-before-commit')
+remote.after_precreate=nil
+local other=service(Fixture.new('/apps/other','2').api())
+local wrong=run(other,'download_book',listed.value.entries[1],options)
+assert(wrong.e.code=='CONFLICT')
+assert(state:get(other.backend.backend_id,id)==nil,'backend baselines must remain independent')
+-- Unverified JSON writes that are overtaken after commit must not advance the baseline.
+local baseline=state:get(c.backend.backend_id,id)
+write(book,raw);context.book.size=#raw;context.book.mtime=fixture_attributes(book).modification
+context.progress={type='xpointer',value='/body/p[9]/text().0',percent=0.9}
+remote.after_create=function(path,value)
+    if path:match('^/apps/fixture/progress/') then
+        local record=assert(Record.decode(value));record.sync.writeId='other-writer'
+        remote.put(path,assert(Record.encode(record)))
+    end
+end
+local uncertain=run(c,'progress_operation','upload',context,options)
+assert(uncertain.e and uncertain.e.code=='UNCERTAIN')
+assert(state:get(c.backend.backend_id,id).base_remote_fingerprint==baseline.base_remote_fingerprint)
+remote.after_create=nil
+-- Reusing the same orchestration for WebDAV must preserve its conditional flow.
+local dav=require('spec/fixtures/fake_backend'):new()
+local web=service(dav)
+local web_book=run(web,'upload_book',context,options);assert(not web_book.e,web_book.e and web_book.e.message)
+local web_list=run(web,'list',options);assert(not web_list.e and #web_list.value.entries==1)
+local web_progress=run(web,'progress_operation','upload',context,{schedule=options.schedule,confirm=function(info,done)
+    assert(not info.best_effort);done(true)
+end})
+assert(not web_progress.e,web_progress.e and web_progress.e.message)
+assert(dav.backend_id~=c.backend.backend_id and state:get(dav.backend_id,id))
+-- Pagination is consumed completely and repeated cursors are rejected.
+local original_list=c.backend.list
+local pages=0
+c.backend.list=function(_,path,cursor,done)
+    pages=pages+1
+    done(nil,{entries={{path='part-'..tostring(cursor or 0)}},continuation=not cursor and 1000 or nil})
+end
+local collected
+require('modules/async').run(function()return c:all_entries('metadata/')end,function(e,v)assert(not e);collected=v end)
+assert(pages==2 and #collected==2)
+c.backend.list=original_list
+print('Baidu full book publish/list/download/backup/progress/rename, corruption and backend isolation regressions passed')

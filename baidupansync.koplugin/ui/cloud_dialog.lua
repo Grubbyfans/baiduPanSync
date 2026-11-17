@@ -28,7 +28,7 @@ function M.confirm(info,done)
             Dialog.percent_text(info.context.progress.percent),remote and Dialog.percent_text(remote.progress.percent) or '不存在',
             kinds[info.classification.kind] or '请重新核对')
         if remote then text=text..string.format('\n云端 revision：%d\n设备：%s\n设备时间：%s',remote.sync.revision,remote.sync.deviceId,remote.sync.updatedAt) end
-        if info.best_effort then text=text..'\n服务无已验证的条件写入，仅尽力避免并发覆盖。' end
+        if info.best_effort then text=text..'\n此服务无法保证并发保护，请避免多台设备同时上传同一本书的进度。' end
         UI:show(Confirm:new{title=info.kind=='progress_upload' and _('上传当前进度') or _('下载并应用云端进度'),
             text=text,ok_text=_('确认'),cancel_text=_('取消'),ok_callback=function()done(true)end,cancel_callback=function()done(false)end})
         return
@@ -49,10 +49,12 @@ function M.confirm(info,done)
         lines[#lines+1]='云端同名/相同内容检查结果：'
         for _,candidate in ipairs(info.candidates) do
             local selected=candidate
+            if not info.no_replace_other or selected.record.bookId==info.identity.book_id then
             buttons[#buttons+1]={{text='覆盖条目：'..Meta.filename(selected.record)..'\n'..
                 (selected.record.bookId==info.identity.book_id and 'bookId 相同（内容一致）' or 'bookId 不同（内容不同）')..' · '..selected.record.bookId:sub(1,12)..'…',callback=function()
                 UI:close(dialog);done{mode='overwrite',book_id=selected.record.bookId}
             end}}
+            else lines[#lines+1]='已存在：'..Meta.filename(selected.record)..'（不同内容，请选择重命名保留两本）' end
         end
         if info.recovery then
             lines[#lines+1]='此 bookId 已有 EPUB 但未发布；继续将回读整本书校验后补全发布。'
@@ -60,7 +62,8 @@ function M.confirm(info,done)
                 UI:close(dialog);done{mode='overwrite',book_id=info.identity.book_id}
             end}}
         end
-        lines[#lines+1]='不同内容覆盖会发布新 bookId 并撤下选中的旧书库条目；旧 EPUB 和进度保留，不迁移。'
+        lines[#lines+1]=info.no_replace_other and '百度不提供已验证的原子条件删除；不同内容的同名书籍请重命名保留两本。'
+            or '不同内容覆盖会发布新 bookId 并撤下选中的旧书库条目；旧 EPUB 和进度保留，不迁移。'
     end
     buttons[#buttons+1]={{text=_('重命名'),callback=function()UI:close(dialog);rename(info.filename,done)end}}
     buttons[#buttons+1]={{text=_('跳过 / 取消'),callback=function()UI:close(dialog);done('cancel')end}}

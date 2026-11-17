@@ -1,7 +1,7 @@
 --[[--
-BaiduPanSync 0.7.2: manual WebDAV EPUB and reading-progress synchronization.
+BaiduPanSync 0.8.0: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
-Baidu C2 provides OOB authorization and isolated API verification.
+Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
 
 local DataStorage = require("datastorage")
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.7.2"
+local VERSION = "0.8.0"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -90,6 +90,21 @@ end
 function BaiduPanSync:hasRestorePoint()
     return self.progress:has_restore_point()
 end
+function BaiduPanSync:_baiduBackend()
+    local p,e=self.baidu_store:load();if e then return nil,e end
+    if not p or not p.user_id then return nil,require('modules/errors').new('AUTH','请先配置百度应用并完成扫码授权') end
+    if type(p.expires_at)~='number' or os.time()>=p.expires_at-30 then
+        return nil,require('modules/errors').new('AUTH','百度授权已过期，请重新授权并运行连接测试')
+    end
+    local api,err=require('modules/baidu_api'):new(p);if not api then return nil,err end
+    if api.backend_id~=p.backend_id or type(p.last_probe)~='table' or p.last_probe.backend_id~=api.backend_id then
+        return nil,require('modules/errors').new('AUTH','请先在百度网盘设置中通过测试文件上传与下载验证')
+    end
+    return api
+end
+function BaiduPanSync:hasUsableBaidu()
+    return self:_baiduBackend()~=nil
+end
 
 -- Builds hash UI callbacks. The progress dialog only appears on a cache miss;
 -- cache hits complete synchronously without any dialog.
@@ -152,22 +167,36 @@ end
 
 function BaiduPanSync:_cloud(operation, entry)
     if self.dav_busy or self.undo_busy or self.baidu_busy then return Dialog.info("已有任务正在进行，请稍候。") end
-    if self.active_backend=='baidu' then return Dialog.info('百度目前只开放 C2 授权与测试。书籍及阅读进度同步请切回 WebDAV。') end
-    if self.dav_load_error then return Dialog.error(self.dav_load_error) end
-    if not self.dav_adapter then return Dialog.info("请先配置 WebDAV。") end
+    local mode=self.active_backend or 'webdav'
+    local backend
+    if mode=='baidu' then
+        local err;backend,err=self:_baiduBackend();if not backend then return Dialog.error(err) end
+    elseif mode=='webdav' then
+        if self.dav_load_error then return Dialog.error(self.dav_load_error) end
+        if not self.dav_adapter then return Dialog.info("请先配置 WebDAV。") end
+        backend=self.dav_adapter
+    else return Dialog.info('当前后端类型无效，请在连接设置中重新选择。') end
     local context
     if operation~="list" and operation~="download_book" then
         local e
         context,e=self.progress:capture()
         if not context then return Dialog.error(e) end
     end
-    local backend=self.dav_adapter
     local cloud=require("modules/cloud_service"):new{backend=backend,identity=self.identity,progress=self.progress,
         state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader"}
     local cloud_dialog=require("ui/cloud_dialog")
     local opts=self:_hash_opts()
     opts.guard=function()
-        if self.dav_adapter~=backend then return nil,require("modules/errors").new("CONFLICT","后端配置已变化") end
+        if (self.active_backend or 'webdav')~=mode or (mode=='webdav' and self.dav_adapter~=backend) then
+            return nil,require("modules/errors").new("CONFLICT","后端配置已变化")
+        end
+        if mode=='baidu' then
+            local p,e=self.baidu_store:load();if e then return nil,e end
+            if not p or p.backend_id~=backend.backend_id or p.access_token~=backend.profile.access_token
+                or p.cafile~=backend.profile.cafile or p.app_dir~=backend.profile.app_dir then
+                return nil,require('modules/errors').new('CONFLICT','百度账户或配置已变化，请重新开始')
+            end
+        end
         return true
     end
     opts.confirm=cloud_dialog.confirm
@@ -185,6 +214,7 @@ function BaiduPanSync:_cloud(operation, entry)
         return document and document.file
     end
     opts.backup_metadata=require("modules/local_library").backup_metadata
+    backend.operation_opts=opts
     self.dav_busy=true
     local function completed(e,result)
         if scan_ui then scan_ui:close() end

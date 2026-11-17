@@ -10,7 +10,7 @@ from lupa import LuaRuntime
 repo = Path(__file__).resolve().parents[2]
 os.chdir(repo)
 for path in sorted((repo / 'baidupansync.koplugin/spec').glob('*regression.lua')):
-    lua = LuaRuntime(encoding=None)
+    lua = LuaRuntime(encoding=None, unpack_returned_tuples=True)
     lua.globals()[b'fixture_b64'] = base64.b64encode
     lua.globals()[b'fixture_unb64'] = base64.b64decode
     def from_lua(value):
@@ -31,16 +31,35 @@ for path in sorted((repo / 'baidupansync.koplugin/spec').glob('*regression.lua')
         return value
     lua.globals()[b'fixture_json_encode'] = lambda v: json.dumps(from_lua(v), ensure_ascii=False, separators=(',', ':')).encode()
     lua.globals()[b'fixture_json_decode'] = lambda v: to_lua(json.loads(v))
-    lua.globals()[b'fixture_sha256'] = lambda v: hashlib.sha256(v).hexdigest().encode()
-    lua.globals()[b'fixture_md5'] = lambda v: hashlib.md5(v).hexdigest().encode()
+    def digest_factory(name, data=None):
+        if data is not None:
+            return hashlib.new(name, data).hexdigest().encode()
+        digest = hashlib.new(name)
+        def update(chunk=None):
+            if chunk is None:
+                return digest.hexdigest().encode()
+            digest.update(chunk)
+        return update
+    lua.globals()[b'fixture_sha256'] = lambda v=None: digest_factory('sha256', v)
+    lua.globals()[b'fixture_md5'] = lambda v=None: digest_factory('md5', v)
     def attributes(raw_path):
         target = Path(os.fsdecode(raw_path))
         if not target.exists() and not target.is_symlink():
             return None
         return lua.table_from({b'mode': b'link' if target.is_symlink() else b'directory' if target.is_dir() else b'file',
-                               b'size': target.lstat().st_size})
+                               b'size': target.lstat().st_size, b'modification': int(target.lstat().st_mtime)})
     lua.globals()[b'fixture_attributes'] = attributes
     lua.globals()[b'fixture_mkdir'] = lambda v: (Path(os.fsdecode(v)).mkdir(), True)[1]
+    lua.globals()[b'fixture_rmdir'] = lambda v: (Path(os.fsdecode(v)).rmdir(), True)[1]
+    lua.globals()[b'fixture_listdir'] = lambda v: lua.table_from([name.encode() for name in sorted(os.listdir(os.fsdecode(v)))])
+    lua.globals()[b'fixture_realpath'] = lambda v: Path(os.fsdecode(v)).resolve().as_posix().encode()
+    def exclusive_open(raw_path, *_):
+        try:
+            return os.open(os.fsdecode(raw_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        except OSError:
+            return -1
+    lua.globals()[b'fixture_exclusive_open'] = exclusive_open
+    lua.globals()[b'fixture_close'] = lambda fd: (os.close(fd), 0)[1]
     # KOReader uses POSIX rename replacement; Windows CRT rename won't replace
     # an existing file. os.replace supplies those semantics for isolated tests.
     lua.globals()[b'fixture_replace'] = lambda source, target: (os.replace(os.fsdecode(source), os.fsdecode(target)), True)[1]

@@ -51,5 +51,5 @@ local api=assert(API:new{app_key='app',app_dir='/apps/测试',user_id='900719925
 api:user_info(function(e)assert(e.code=='AUTH')end);assert(not requested)
 assert(api:capabilities().conditional_replace==false)
 local ok,err=pcall(api.path,api,'../outside');assert(not ok and err.code=='INVALID_INPUT')
-api:uploadSmallJson('test.json','{}',{absent=true},function(e)assert(e.code=='UNSUPPORTED')end)
+api:uploadSmallJson('test.json','{}',{etag='unsupported'},function(e)assert(e.code=='UNSUPPORTED')end)
 print('Baidu auth exchange, identity isolation, expiry, cancellation and persistence regressions passed')

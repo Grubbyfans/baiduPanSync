@@ -13,7 +13,8 @@ local lfs=require('libs/libkoreader-lfs')
 local M={};M.__index=M
 local function fail(code,message,outcome)error(Errors.new(code,message,{outcome=outcome}),0)end
 local function same(a,b)
-    return (not a and not b) or (a and b and a.fingerprint==b.fingerprint and a.stat.etag==b.stat.etag)
+    return (not a and not b) or (a and b and a.fingerprint==b.fingerprint and a.stat.etag==b.stat.etag
+        and a.stat.version==b.stat.version)
 end
 function M:new(o)
     o.backend.progress_dir=o.temp_dir
@@ -39,7 +40,7 @@ function M:read(path,decode)
     local raw=self:call('download',path)
     local value=A.check(decode(raw))
     local after=self:optional_stat(path)
-    if not after or before.etag~=after.etag or before.size~=after.size then fail('CONFLICT','读取时远端记录发生变化，请重试') end
+    if not after or before.etag~=after.etag or before.version~=after.version or before.size~=after.size then fail('CONFLICT','读取时远端记录发生变化，请重试') end
     return {raw=raw,record=value,stat=after,fingerprint=Hash.sha256_text(raw)}
 end
 function M:guard(context,opts)
@@ -72,7 +73,11 @@ function M:run(kind,opts,fn,done)
     self.active=true;self.cleanup={};self.task=Task:new{kind=kind,on_state=opts.on_state}
     local task=self.task
     task:transition('preparing')
-    A.run(function()self:guard(nil,opts);return fn(opts)end,function(e,result)
+    A.run(function()
+        self:guard(nil,opts)
+        if self.backend.kind=='baidu' then self:call('ensureAuthorized') end
+        return fn(opts)
+    end,function(e,result)
         for i=#self.cleanup,1,-1 do pcall(self.cleanup[i]) end
         self.active=false
         if e then
@@ -96,6 +101,10 @@ function M:directory(path)
     end
 end
 function M:ready(require_delete,allow_best_effort)
+    if self.backend.kind=='baidu' then
+        if require_delete then fail('UNSUPPORTED','百度未验证原子条件删除，不能覆盖其他内容的云端条目，请选择重命名') end
+        return false
+    end
     if self.backend.conditional_verified and (not require_delete or self.backend.conditional_delete_verified) then return end
     local e=A.await(function(done)require('modules/dav_probe').run(self.backend,done)end)
     if e then
@@ -105,6 +114,9 @@ function M:ready(require_delete,allow_best_effort)
     if require_delete and not self.backend.conditional_delete_verified then fail('UNSUPPORTED','服务未通过条件删除验证，请使用重命名保留两本书') end
 end
 function M:condition(snapshot)
+    if self.backend.optimistic_versions then
+        return snapshot and {version=snapshot.stat.version} or {absent=true}
+    end
     if not self.backend.conditional_verified then return nil end
     if not snapshot then return {absent=true} end
     if not snapshot.stat.etag or snapshot.stat.weak_etag then fail('UNSUPPORTED','远端没有可用的强版本标记') end
@@ -150,9 +162,11 @@ function M:progress_operation(operation,context,opts,done)
                 if not remote then progress_precondition={absent=true}
                 elseif remote.stat.etag and not remote.stat.weak_etag then progress_precondition={etag=remote.stat.etag} end
             end
+            if self.backend.optimistic_versions then progress_precondition=self:condition(remote) end
             self:step('awaiting_confirm')
             self:confirm({kind='progress_'..operation,context=context,remote=remote,classification=classification,
-                backend=self.backend.root,identity=identity,best_effort=operation=='upload' and not progress_precondition},o)
+                backend=self.backend.root,identity=identity,best_effort=operation=='upload'
+                    and (not progress_precondition or self.backend.optimistic_versions==true)},o)
             self:step('rechecking');self:guard(context,o)
             local checked=self:identify(context,o)
             if checked.book_id~=identity.book_id then fail('CONFLICT','书籍在确认期间发生变化') end
@@ -187,6 +201,24 @@ function M:progress_operation(operation,context,opts,done)
         fail('CONFLICT','远端连续变化，请稍后重新同步')
     end,done)
 end
+function M:all_entries(path)
+    local entries,continuation={},nil
+    local seen,paths={},{}
+    repeat
+        local page=self:call('list',path,continuation)
+        for _,entry in ipairs(page.entries) do
+            if paths[entry.path] then fail('CONFLICT','远端目录分页出现重复条目，请刷新书库重试') end
+            paths[entry.path]=true;entries[#entries+1]=entry
+        end
+        if #entries>10000 then fail('INVALID_INPUT','远端目录超过一万条记录，检查未完成，请整理后重试') end
+        continuation=page.continuation
+        if continuation then
+            if seen[continuation] then fail('CONFLICT','远端目录枚举出现重复分页，已停止') end
+            seen[continuation]=true
+        end
+    until not continuation
+    return entries
+end
 function M:listing()
     local books=self:optional_stat('books/')
     local metadata=self:optional_stat('metadata/')
@@ -195,11 +227,11 @@ function M:listing()
     local candidates={}
     if books then
         if books.type~='directory' then fail('CONFLICT','books 不是目录') end
-        for _,entry in ipairs(self:call('list','books/',nil).entries) do candidates[entry.path]=entry end
+        for _,entry in ipairs(self:all_entries('books/')) do candidates[entry.path]=entry end
     end
     if metadata then
         if metadata.type~='directory' then fail('CONFLICT','metadata 不是目录') end
-        for _,entry in ipairs(self:call('list','metadata/',nil).entries) do
+        for _,entry in ipairs(self:all_entries('metadata/')) do
             local id=entry.path:match('^metadata/([0-9a-f]+)%.json$')
             if id and #id==64 and entry.type=='file' then
                 -- Malformed records are explicit issues, never normal downloads.
@@ -227,6 +259,7 @@ function M:list(opts,done)
     return self:run('library',opts,function(o)
         self:step('reading_remote')
         local entries,issues=self:listing();self:guard(nil,o)
+        for _,entry in ipairs(entries) do entry.backend_id=self.backend.backend_id end
         return {entries=entries,issues=issues,backend=self.backend.root}
     end,done)
 end
@@ -267,7 +300,7 @@ function M:upload_book(context,opts,done)
         if #collisions>0 or (existing_book and not own) then
             self:step('awaiting_confirm')
             local decision=self:confirm({kind='upload_book',backend=self.backend.root,identity=identity,filename=filename,
-                candidates=collisions,recovery=existing_book and not own},o)
+                candidates=collisions,recovery=existing_book and not own,no_replace_other=self.backend.kind=='baidu'},o)
             if type(decision)~='table' then fail('INVALID_INPUT','无效的书籍处理选择') end
             if decision.mode=='skip' then return {skipped=true} end
             if decision.mode=='rename' then
@@ -309,13 +342,15 @@ function M:upload_book(context,opts,done)
         else
             A.call(function(cb)self.backend:upload(book_path,context.book.file_path,o.on_transfer,cb,
                 {precondition={absent=true},expected_sha256=identity.book_id})end)
+            if self.backend.verify_uploaded_content then self:verify_remote_book(identity,book_path,o) end
         end
         self:step('verifying');self:guard(context,o)
         local uploaded=self:optional_stat(book_path)
         if not uploaded or uploaded.type~='file' or uploaded.size~=identity.size then fail('UNCERTAIN','书籍提交大小无法确认，未发布','uncertain') end
         local metadata={schemaVersion=1,status='ready',bookId=identity.book_id,contentSha256=identity.book_id,
             fileName=context.book.file_name,displayFileName=filename,title=context.book.title or context.book.file_name,
-            size=identity.size,path=book_path,uploadedAt=Record.iso_timestamp(self.now()),verificationLevel=existing_book and 'sha256' or 'size'}
+            size=identity.size,path=book_path,uploadedAt=Record.iso_timestamp(self.now()),
+            verificationLevel=(existing_book or self.backend.verify_uploaded_content) and 'sha256' or 'size'}
         if o.make_cover then
             local ok,cover=pcall(o.make_cover,context.book.file_path,self:temporary(self.temp_dir))
             if ok and require('modules/book_cover').decode(cover) then metadata.coverPng=cover end
@@ -345,6 +380,7 @@ function M:upload_book(context,opts,done)
 end
 function M:download_book(entry,opts,done)
     return self:run('download_book',opts,function(o)
+        if entry.backend_id and entry.backend_id~=self.backend.backend_id then fail('CONFLICT','书库条目来自其他后端，请重新打开当前书库') end
         local root=Local.root(o.home_dir)
         local valid=A.check(Meta.validate(entry.record))
         self:step('reading_remote')

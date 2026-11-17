@@ -40,10 +40,21 @@ function M.perform(req)
     if req.upload_path then
         input=io.open(req.upload_path,'rb')
         if not input then return Errors.new('IO','无法打开上传文件') end
+        if req.upload_offset and not input:seek('set',req.upload_offset) then
+            input:close();return Errors.new('IO','无法定位上传分片')
+        end
+        local prefix,suffix=req.upload_prefix,req.upload_suffix
+        local prefix_sent,suffix_sent=false,false
         source=function()
             if require('socket').gettime()-started>120 then return nil,'upload timeout' end
-            local chunk,e=input:read(65536)
+            if prefix and not prefix_sent then prefix_sent=true;return prefix end
+            if req.upload_size and uploaded==req.upload_size then
+                if suffix and not suffix_sent then suffix_sent=true;return suffix end
+                return nil
+            end
+            local chunk,e=input:read(req.upload_size and math.min(65536,req.upload_size-uploaded) or 65536)
             if chunk then digest(chunk);uploaded=uploaded+#chunk;report(uploaded) end
+            if not chunk and req.upload_size and uploaded~=req.upload_size then return nil,'source truncated' end
             return chunk,e
         end
     elseif req.body then source=ltn12.source.string(req.body) end
@@ -51,8 +62,17 @@ function M.perform(req)
         -- Parent owns/reserves this file: r+b never recreates a cancelled temp.
         output=io.open(req.download_path,'r+b')
         if not output then if input then input:close() end;return Errors.new('IO','无法打开下载临时文件') end
+        if req.reset_download then
+            require('ffi/posix_h')
+            local ffi=require('ffi')
+            if ffi.C.ftruncate(ffi.C.fileno(output),0)~=0 then
+                output:close();if input then input:close() end
+                return Errors.new('IO','无法清空下载临时文件')
+            end
+        end
     end
-    headers['Content-Length']=tostring(req.upload_size or (req.body and #req.body) or 0)
+    headers['Content-Length']=tostring(req.upload_path and
+        ((req.upload_size or 0)+#(req.upload_prefix or '')+#(req.upload_suffix or '')) or (req.body and #req.body) or 0)
     socketutil:set_timeout(10,120)
     local ok,success,status,response_headers=pcall(http.request,{
         url=req.url,method=req.method,headers=headers,redirect=false,create=create,
@@ -122,7 +142,7 @@ function M.request(req,done)
             UI:scheduleIn(0.2,poll)
         end
         local completed,e,r=trapper:dismissableRunInSubprocess(function() return M.perform(req) end,
-            dialog or '正在访问 WebDAV（点击可取消）…')
+            dialog or req.wait_message or '正在访问 WebDAV（点击可取消）…')
         if dialog then dialog:close();dialog=nil;UI:unschedule(poll) end
         if marker then os.remove(marker) end
         if not completed then

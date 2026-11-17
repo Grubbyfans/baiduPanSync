@@ -23,6 +23,9 @@ function M.request(opts,done)
     local req={url=opts.url,method=opts.method or 'GET',body=opts.body,cafile=opts.cafile,
         headers=opts.headers or {['User-Agent']='pan.baidu.com'},max_bytes=opts.max_bytes or 1048576,
         writing=opts.writing}
+    for _,key in ipairs({'upload_path','upload_offset','upload_size','upload_prefix','upload_suffix',
+        'expected_sha256','download_path','progress_dir'}) do req[key]=opts[key] end
+    req.wait_message='正在访问百度网盘（点击可取消）…'
     return transport(req,function(e,r)
         if e then return done(e) end
         if not r or r.status~=200 then
@@ -40,7 +43,7 @@ function M.request(opts,done)
             local public_code=type(n)=='number' and tostring(n) or
                 ({invalid_grant=true,invalid_client=true,invalid_request=true,invalid_scope=true,
                     unsupported_grant_type=true,access_denied=true})[n] and n or 'unknown'
-            return done(Errors.new(auth and 'AUTH' or n==-9 and 'NOT_FOUND' or 'FORBIDDEN',
+            return done(Errors.new(auth and 'AUTH' or n==-9 and 'NOT_FOUND' or n==-8 and 'CONFLICT' or 'FORBIDDEN',
                 auth and '百度授权无效或已过期，请重新授权' or '百度接口拒绝请求（错误码 '..public_code..'）'))
         end
         done(nil,v)
