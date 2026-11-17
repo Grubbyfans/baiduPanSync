@@ -19,6 +19,20 @@ local function rename(filename,done)
     UI:show(input);input:onShowKeyboard()
 end
 function M.confirm(info,done)
+    if info.kind=='repair_book' then
+        local input
+        input=Input:new{title='检查并补全发布\n'..info.backend..' / '..info.entry.path..
+            '\n将回读并校验整书，仅补写书库记录，不修改 EPUB 或云端进度。\n请输入用于书库显示的书名：',
+            input='恢复书籍-'..info.entry.book_id:sub(1,12),dismissable=false,buttons={{
+                {text='取消',callback=function()UI:close(input);done(false)end},
+                {text='校验并发布',callback=function()
+                    local title=input:getInputText()
+                    if not Meta.text(title) or not Meta.name(title) then return Dialog.info('请输入有效的书名') end
+                    UI:close(input);done{title=title}
+                end},
+            }}}
+        UI:show(input);input:onShowKeyboard();return
+    end
     if info.kind=='delete_book' then
         local lines={'书籍：'..M.library_title(info.record),'服务位置：'..info.backend,
             '将删除云端 EPUB、书库记录和该书的云端阅读进度。本机已下载文件和阅读位置会保留。',
@@ -106,9 +120,10 @@ function M.library_entries(result,state)
     end)
     return entries
 end
-function M.library(result,on_download,page,on_show,on_close,state,on_delete)
+function M.library(result,on_download,page,on_show,on_close,state,on_delete,on_repair,on_refresh)
     local grid=require('ui/library_grid'):new{result=result,on_download=on_download,
-        page=page,state=state,on_close=on_close,title_for=M.library_title,filter=M.library_entries,on_delete=on_delete}
+        page=page,state=state,on_close=on_close,title_for=M.library_title,filter=M.library_entries,on_delete=on_delete,
+        on_repair=on_repair,on_refresh=on_refresh}
     if on_show then on_show(grid) end
     UI:show(grid)
     return grid

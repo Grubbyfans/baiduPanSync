@@ -54,7 +54,8 @@ package.loaded['modules/book_cover']={render=function(encoded)
 end}
 package.loaded['ui/progress_dialog']={info=function()end}
 package.loaded.gettext=function(s)return s end
-package.loaded['modules/book_metadata']={filename=function(r)return r.fileName end}
+package.loaded['modules/book_metadata']={filename=function(r)return r.fileName end,
+    text=function(s)return type(s)=='string' and #s>0 end,name=function(s)return s..'.epub' end}
 local Cloud=require('ui/cloud_dialog')
 local Grid=require('ui/library_grid')
 local result={entries={},issues={},backend='http://test/sync/'}
@@ -88,6 +89,15 @@ Cloud.confirm({kind='delete_book',backend='fixture',record=result.entries[3].rec
     paths={'books/fixture.epub','metadata/fixture.json','progress/fixture.json'},best_effort=true},function(v)choice=v end)
 assert(shown.text:find('本机已下载文件',1,true) and shown.text:find('无法原子锁定',1,true))
 shown.cancel_callback();assert(choice==false)
+local orphan={book_id=string.rep('a',64),path='books/'..string.rep('a',64)..'.epub',size=1024}
+grid.result.unpublished={orphan};local repaired,refreshed
+grid.on_repair=function(entry)repaired=entry end;grid.on_refresh=function()refreshed=true end
+grid:options();shown.buttons[4][1].callback();shown.buttons[1][1].callback()
+assert(repaired==orphan and not grid.closed)
+grid:options();shown.buttons[3][1].callback();assert(refreshed)
+Cloud.confirm({kind='repair_book',backend='fixture',entry=orphan},function(v)choice=v end)
+shown.input='中文书名';shown.buttons[1][2].callback();assert(choice.title=='中文书名')
+grid:updateResult(result);assert(grid.state.query=='书籍03' and #grid.visible_entries==1)
 grid.state.query='missing';grid:rebuild();assert(#grid.visible_entries==0 and grid.pages==1)
 grid:goToPage(999);assert(grid.page==1)
 grid.state.query='';grid.state.order='name';grid:rebuild()

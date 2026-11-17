@@ -84,7 +84,7 @@ function M:run(kind,opts,fn,done)
         for i=#self.cleanup,1,-1 do pcall(self.cleanup[i]) end
         self.active=false
         if e then
-            if (kind=='upload_book' or kind=='progress_upload' or kind=='delete_book') and task.state=='verifying'
+            if (kind=='upload_book' or kind=='progress_upload' or kind=='delete_book' or kind=='repair_book') and task.state=='verifying'
                 and e.code~='UNCERTAIN' and e.outcome~='uncertain' then
                 e=Errors.new('UNCERTAIN','云端修改已发出但未完整核验：'..e.message,{outcome='uncertain'})
             end
@@ -222,12 +222,20 @@ function M:all_entries(path)
     until not continuation
     return entries
 end
-function M:listing()
+local function version_matches(a,b)
+    if not a or not b or a.type~=b.type or a.size~=b.size then return false end
+    if a.version and b.version then return a.version==b.version end
+    return a.etag and a.etag==b.etag and not a.weak_etag and not b.weak_etag and a.etag:sub(1,2)~='W/' or false
+end
+function M:listing(cached)
     local books=self:optional_stat('books/')
     local metadata=self:optional_stat('metadata/')
-    local result,issues={},{}
-    if not books and not metadata then return result,issues end
-    local candidates={}
+    local result,issues,unpublished={},{},{}
+    if not books and not metadata then return result,issues,unpublished end
+    local candidates,present,reusable={},{},{}
+    if cached and cached.backend_id==self.backend.backend_id then
+        for _,entry in ipairs(cached.entries or {}) do reusable[entry.record.bookId]=entry end
+    end
     if books then
         if books.type~='directory' then fail('CONFLICT','books 不是目录') end
         for _,entry in ipairs(self:all_entries('books/')) do candidates[entry.path]=entry end
@@ -236,11 +244,14 @@ function M:listing()
         if metadata.type~='directory' then fail('CONFLICT','metadata 不是目录') end
         for _,entry in ipairs(self:all_entries('metadata/')) do
             local id=entry.path:match('^metadata/([0-9a-f]+)%.json$')
+            if id then present[id]=true end
             if id and #id==64 and entry.type=='file' then
                 -- Malformed records are explicit issues, never normal downloads.
-                local e,snapshot=A.await(function(cb)
+                local e,snapshot
+                if reusable[id] and version_matches(reusable[id].stat,entry) then snapshot=reusable[id]
+                else e,snapshot=A.await(function(cb)
                     A.run(function()return self:read(entry.path,Meta.decode)end,cb)
-                end)
+                end) end
                 if e then
                     if e.code~='INVALID_INPUT' and e.code~='UNSUPPORTED' then error(e,0) end
                     issues[#issues+1]={path=entry.path,message=e.message}
@@ -252,18 +263,27 @@ function M:listing()
                         snapshot.book_stat=book;result[#result+1]=snapshot
                     else issues[#issues+1]={path=entry.path,message='书籍缺失或大小不一致'} end
                 end
-            elseif entry.type=='file' then issues[#issues+1]={path=entry.path,message='无法识别的发布记录'} end
+            elseif entry.type=='file' then issues[#issues+1]={path=entry.path,message='无法识别的发布记录'}
+            elseif id then issues[#issues+1]={path=entry.path,message='发布记录不是文件'} end
         end
     end
+    for path,book in pairs(candidates) do
+        local id=path:match('^books/([0-9a-f]+)%.epub$')
+        if id and #id==64 and not present[id] and book.type=='file' and book.size>0 and book.size<=1024*1024*1024 then
+            unpublished[#unpublished+1]={book_id=id,path=path,size=book.size,book_stat=book,backend_id=self.backend.backend_id}
+        end
+    end
+    table.sort(unpublished,function(a,b)return a.book_id<b.book_id end)
     table.sort(result,function(a,b)return Meta.filename(a.record)<Meta.filename(b.record)end)
-    return result,issues
+    return result,issues,unpublished
 end
 function M:list(opts,done)
     return self:run('library',opts,function(o)
         self:step('reading_remote')
-        local entries,issues=self:listing();self:guard(nil,o)
+        local entries,issues,unpublished=self:listing(o.cached_result);self:guard(nil,o)
         for _,entry in ipairs(entries) do entry.backend_id=self.backend.backend_id end
-        return {entries=entries,issues=issues,backend=self.backend.root}
+        return {entries=entries,issues=issues,unpublished=unpublished,backend=self.backend.root,
+            backend_id=self.backend.backend_id,updated_at=self.now()}
     end,done)
 end
 function M:temporary(parent)
@@ -276,7 +296,7 @@ function M:verify_remote_book(identity,path,opts)
     self:step('verifying')
     local stage='准备回读临时文件'
     self:phase(stage,opts)
-    local e=A.await(function(done)A.run(function()
+    local e,verified_temp=A.await(function(done)A.run(function()
         local temp=self:temporary(self.temp_dir)
         stage='检查回读目录剩余空间'
         self:phase(stage,opts)
@@ -291,13 +311,14 @@ function M:verify_remote_book(identity,path,opts)
             on_progress=opts.on_progress,on_hash_start=opts.on_hash_start,on_hash_finish=opts.on_hash_finish}
         local actual=Local.identify(self.identity,temp,hashopts)
         if actual.book_id~=identity.book_id or actual.size~=identity.size then fail('CONFLICT','已存在的云端 EPUB 与路径摘要不符，拒绝补写发布记录') end
-        return true
+        return temp
     end,done)end)
     if e then
         fail('UNCERTAIN','云端 EPUB 已存在，但整书校验未完成，本次书库发布已停止。\n阶段：'..stage..
             '\n位置：'..self.backend.root..' / '..path..'\n原因：'..e.message..
-            '\n修复原因后再次上传，选择“检查并补全发布”；无需先删除云端 EPUB。','uncertain')
+            '\n修复原因后，可从书库“修复未发布书籍”重试，或再次上传并选择“检查并补全发布”。无需删除云端 EPUB。','uncertain')
     end
+    return verified_temp
 end
 function M:upload_book(context,opts,done)
     return self:run('upload_book',opts,function(o)
@@ -405,6 +426,54 @@ end
 local function same_file(a,b)
     return (not a and not b) or (a and b and a.type==b.type and a.size==b.size
         and a.etag==b.etag and a.version==b.version)
+end
+function M:repair_book(entry,opts,done)
+    return self:run('repair_book',opts,function(o)
+        if entry.backend_id~=self.backend.backend_id or not Hash.is_sha256_hex(entry.book_id)
+            or entry.path~='books/'..entry.book_id..'.epub' then fail('CONFLICT','修复条目不属于当前后端，请刷新书库') end
+        local id=entry.book_id
+        local meta_path='metadata/'..id..'.json'
+        self:step('reading_remote');self:ready()
+        if self:optional_stat(meta_path) then fail('CONFLICT','此书已有发布记录，请刷新书库；不会覆盖已有记录') end
+        local book=self:optional_stat(entry.path)
+        if not book or book.type~='file' or not book.size or book.size<=0 or book.size>1024*1024*1024
+            or not same_file(book,entry.book_stat) then fail('CONFLICT','未发布 EPUB 已变化或超过 1 GiB，请刷新后重新修复') end
+        self:step('awaiting_confirm')
+        local decision=self:confirm({kind='repair_book',backend=self.backend.root,entry=entry},o)
+        if type(decision)=='table' and type(decision.title)=='string' then decision.title=decision.title:match('^%s*(.-)%s*$') end
+        if type(decision)~='table' or not Meta.text(decision.title) then fail('INVALID_INPUT','请输入有效的书名') end
+        local filename=A.check(Meta.name(decision.title))
+        self:step('rechecking');self:guard(nil,o)
+        local entries=self:listing()
+        for _,other in ipairs(entries) do
+            if Meta.filename(other.record)==filename then fail('CONFLICT','云端已有同名书籍，请换一个书名后修复') end
+        end
+        if self:optional_stat(meta_path) or not same_file(book,self:optional_stat(entry.path)) then fail('CONFLICT','确认期间云端书籍已变化，请刷新书库') end
+        self:step('writing')
+        local temp=self:verify_remote_book({book_id=id,size=book.size},entry.path,o)
+        local record={schemaVersion=1,status='ready',bookId=id,contentSha256=id,path=entry.path,size=book.size,
+            fileName=filename,displayFileName=filename,title=decision.title,uploadedAt=Record.iso_timestamp(self.now()),verificationLevel='sha256'}
+        if o.make_cover then
+            -- Give the optional EPUB renderer a normal extension inside our
+            -- exclusive task directory, without installing a local book.
+            local epub=temp:gsub('download%.part$','recovered.epub')
+            if os.rename(temp,epub) then
+                self.cleanup[#self.cleanup+1]=function()os.remove(epub)end
+                local ok,cover=pcall(o.make_cover,epub,self:temporary(self.temp_dir))
+                if ok and require('modules/book_cover').decode(cover) then record.coverPng=cover end
+            end
+        end
+        self:guard(nil,o)
+        if self:optional_stat(meta_path) or not same_file(book,self:optional_stat(entry.path)) then fail('CONFLICT','校验期间云端文件已变化，未发布') end
+        self:directory('metadata')
+        self:phase('发布修复后的书库记录',o)
+        self:call('uploadSmallJson',meta_path,A.check(Meta.encode(record)),self:condition(nil))
+        local published=self:read(meta_path,Meta.decode)
+        if not published or published.raw~=Meta.encode(record) then fail('UNCERTAIN','修复记录回读不符，请刷新核对','uncertain') end
+        self:step('committing_local')
+        published.book_stat=book;published.backend_id=self.backend.backend_id
+        return {record=record,repaired=true,entry=published}
+    end,done)
 end
 function M:delete_book(entry,opts,done)
     return self:run('delete_book',opts,function(o)

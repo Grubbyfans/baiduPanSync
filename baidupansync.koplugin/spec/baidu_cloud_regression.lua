@@ -261,5 +261,76 @@ end
 assert(count==1 and deferred and not deferred.e,deferred and deferred.e and deferred.e.message or 'recovery silently stopped')
 assert(recovery_remote.files['/apps/recovery/metadata/'..id..'.json'])
 assert(table.concat(phases,'/'):find('从云端回读 EPUB',1,true) and phases[#phases]=='书库发布完成')
+local Cache=require('modules/library_cache')
+local cache=Cache:new(root..'/library-cache')
+local function repair_and_cache(backend,seed,remove,contents)
+    local s=service(backend)
+    seed('books/'..id..'.epub',raw)
+    local listed=run(s,'list',options).value
+    assert(#listed.entries==0 and #listed.unpublished==1)
+    assert(cache:save(backend.backend_id,listed))
+    assert(#assert(cache:load(backend.backend_id,backend.root)).unpublished==1)
+    local orphan=listed.unpublished[1]
+    local foreign_entry={backend_id='foreign',book_id=id,path=orphan.path,book_stat=orphan.book_stat}
+    assert(run(s,'repair_book',foreign_entry,{confirm=function()error('foreign entry must not reach confirmation')end}).e.code=='CONFLICT')
+    local repair_opts={schedule=options.schedule,confirm=function(info,done)
+        assert(info.kind=='repair_book');done{title='修复后的中文书名'}
+    end}
+    local cancelled=run(s,'repair_book',orphan,{confirm=function(_,done)done(false)end})
+    assert(cancelled.e.code=='CANCELLED' and not contents('metadata/'..id..'.json'))
+    seed('books/'..id..'.epub','X'..raw:sub(2))
+    local corrupt=run(s,'repair_book',run(s,'list',options).value.unpublished[1],repair_opts)
+    assert(corrupt.e.code=='UNCERTAIN' and not contents('metadata/'..id..'.json'))
+    seed('books/'..id..'.epub',raw)
+    orphan=run(s,'list',options).value.unpublished[1]
+    local race=run(s,'repair_book',orphan,{schedule=options.schedule,confirm=function(_,done)
+        seed('metadata/'..id..'.json','{}');done{title='不能覆盖'}
+    end})
+    assert(race.e.code=='CONFLICT' and contents('metadata/'..id..'.json')=='{}')
+    assert(#run(s,'list',options).value.unpublished==0,'invalid existing metadata must not be treated as absent')
+    remove('metadata/'..id..'.json')
+    local repaired=run(s,'repair_book',orphan,repair_opts)
+    assert(not repaired.e,repaired.e and repaired.e.message)
+    assert(repaired.value.record.title=='修复后的中文书名' and contents('books/'..id..'.epub')==raw)
+    assert(not contents('progress/'..id..'.json'),'repair must not create reading progress')
+    listed=run(s,'list',options).value
+    assert(#listed.entries==1 and #listed.unpublished==0)
+    assert(cache:save(backend.backend_id,listed))
+    local cached=assert(cache:load(backend.backend_id,backend.root))
+    assert(cached.cached and cached.entries[1].record.title=='修复后的中文书名')
+    local foreign=Hash.sha256_text('foreign-backend')
+    local foreign_path=cache:path(foreign)
+    write(foreign_path,read(cache:path(backend.backend_id)))
+    assert(not cache:load(foreign,'another root'),'cache must reject another backend/account even if its file was copied')
+    os.remove(foreign_path)
+    local downloads=0
+    local download=backend.download
+    backend.download=function(self,path,...)
+        if path:match('^metadata/')then downloads=downloads+1 end
+        return download(self,path,...)
+    end
+    local fresh=run(s,'list',{cached_result=cached}).value
+    assert(downloads==0 and #fresh.entries==1,'unchanged metadata must reuse validated snapshots')
+    local changed=json.decode(contents('metadata/'..id..'.json'));changed.title='云端已更新'
+    seed('metadata/'..id..'.json',json.encode(changed))
+    fresh=run(s,'list',{cached_result=cached}).value
+    assert(downloads==1 and fresh.entries[1].record.title=='云端已更新')
+    local path=cache:path(backend.backend_id)
+    write(path,'not json');assert(not cache:load(backend.backend_id,backend.root))
+    assert(cache:save(backend.backend_id,fresh));cache:invalidate(backend.backend_id)
+    assert(not cache:load(backend.backend_id,backend.root))
+    backend.download=download
+end
+local repair_remote=Fixture.new('/apps/repair','10')
+repair_remote.dirs['/apps/repair/books']=true
+repair_remote.dirs['/apps/repair/metadata']=true
+repair_and_cache(repair_remote.api(),function(p,v)repair_remote.put('/apps/repair/'..p,v)end,
+    function(p)repair_remote.files['/apps/repair/'..p]=nil end,
+    function(p)local v=repair_remote.files['/apps/repair/'..p];return v and v.raw end)
+local repair_dav=require('spec/fixtures/fake_backend'):new();repair_dav.dirs.books=true;repair_dav.dirs.metadata=true
+repair_and_cache(repair_dav,function(p,v)repair_dav.files[p]=v end,function(p)repair_dav.files[p]=nil end,
+    function(p)return repair_dav.files[p]end)
+assert(not cache:path('../escape'))
+print('WebDAV/Baidu orphan repair, corruption/race refusal and incremental disk cache regressions passed')
 print('WebDAV/Baidu confirmed deletion, cancellation, races, partial failures and conditional DELETE regressions passed')
 print('Baidu full book publish/list/download/backup/progress/rename, corruption and backend isolation regressions passed')

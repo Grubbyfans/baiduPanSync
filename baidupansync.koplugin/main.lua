@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.8.7: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.9.0: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.8.7"
+local VERSION = "0.9.0"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -177,7 +177,7 @@ function BaiduPanSync:_cloud(operation, entry)
         backend=self.dav_adapter
     else return Dialog.info('当前后端类型无效，请在连接设置中重新选择。') end
     local context
-    if operation~="list" and operation~="download_book" and operation~="delete_book" then
+    if operation~="list" and operation~="download_book" and operation~="delete_book" and operation~='repair_book' then
         local e
         context,e=self.progress:capture()
         if not context then return Dialog.error(e) end
@@ -204,7 +204,7 @@ function BaiduPanSync:_cloud(operation, entry)
         return true
     end
     opts.confirm=cloud_dialog.confirm
-    if operation=='upload_book' then opts.make_cover=require('modules/book_cover').extract end
+    if operation=='upload_book' or operation=='repair_book' then opts.make_cover=require('modules/book_cover').extract end
     local scan_ui
     local hash_cancelled=opts.is_cancelled
     opts.is_cancelled=function()return (scan_ui and scan_ui:is_cancelled()) or hash_cancelled()end
@@ -220,12 +220,57 @@ function BaiduPanSync:_cloud(operation, entry)
     opts.backup_metadata=require("modules/local_library").backup_metadata
     backend.operation_opts=opts
     self.dav_busy=true
+    local cache=require('modules/library_cache'):new(self.settings_dir..'/cache')
+    local cached=operation=='list' and cache:load(backend.backend_id,backend.root) or nil
+    local view=self.library_dialog
+    if view and (view.closed or view.result.backend_id~=backend.backend_id) then view=nil end
+    local function show_library(result)
+        if view and not view.closed then view:updateResult(result);return view end
+        if self.library_dialog then UIManager:close(self.library_dialog) end
+        view=cloud_dialog.library(result,function(selected)self:_cloud('download_book',selected)end,nil,function(dialog)
+            self.library_dialog=dialog
+        end,function(dialog)
+            if self.library_dialog==dialog then self.library_dialog=nil end
+        end,nil,function(selected)self:_cloud('delete_book',selected)end,
+            function(selected)self:_cloud('repair_book',selected)end,function()self:_cloud('list')end)
+        return view
+    end
+    if cached then
+        opts.cached_result=cached;cached.refreshing=true;show_library(cached)
+    end
     local function completed(e,result)
         if scan_ui then scan_ui:close() end
         self.dav_busy=false
         if e then logger.warn('BaiduPanSync',VERSION,mode,operation,'finished',e.code,e.message)
         else logger.info('BaiduPanSync',VERSION,mode,operation,'finished','success') end
+        if (operation=='upload_book' or operation=='delete_book' or operation=='repair_book') and (not e or e.code~='CANCELLED') then
+            cache:invalidate(backend.backend_id)
+        end
         self:refreshHome()
+        if operation=='list' then
+            if not e then
+                local ok,saved=pcall(cache.save,cache,backend.backend_id,result)
+                if not ok or not saved then logger.warn('BaiduPanSync: library cache could not be saved') end
+            end
+            if view and view.closed then return end
+            if e then
+                if cached and view then cached.refreshing=nil;cached.refresh_error=e.message;view:updateResult(cached) end
+                return Dialog.error(e)
+            end
+            return show_library(result)
+        end
+        if operation=='repair_book' then
+            if e then return Dialog.error(e) end
+            local grid=self.library_dialog
+            if grid and not grid.closed and grid.result.backend_id==backend.backend_id then
+                local result_view=grid.result
+                for i=#(result_view.unpublished or {}),1,-1 do
+                    if result_view.unpublished[i].book_id==result.record.bookId then table.remove(result_view.unpublished,i) end
+                end
+                result_view.entries[#result_view.entries+1]=result.entry;grid:updateResult(result_view)
+            end
+            return Dialog.info('已完成整书校验并补全发布：'..result.record.title..'\n未修改云端 EPUB 或阅读进度。',true)
+        end
         if operation=='delete_book' then
             if not e or e.code~='CANCELLED' then
                 if self.library_dialog then UIManager:close(self.library_dialog);self.library_dialog=nil end
@@ -235,14 +280,7 @@ function BaiduPanSync:_cloud(operation, entry)
             return Dialog.info('云端书籍、书库记录和云端进度已删除。本机文件与阅读位置保留。')
         end
         if e then return Dialog.error(e) end
-        if operation=="list" then
-            if self.library_dialog then UIManager:close(self.library_dialog) end
-            return cloud_dialog.library(result,function(selected)self:_cloud("download_book",selected)end,nil,function(dialog)
-                self.library_dialog=dialog
-            end,function(dialog)
-                if self.library_dialog==dialog then self.library_dialog=nil end
-            end,nil,function(selected)self:_cloud('delete_book',selected)end)
-        elseif operation=="query" then return cloud_dialog.query(result)
+        if operation=="query" then return cloud_dialog.query(result)
         elseif operation=="download_book" then
             return cloud_dialog.downloaded(result,function(file)
                 self:closeHome()
@@ -253,9 +291,15 @@ function BaiduPanSync:_cloud(operation, entry)
         elseif operation=="upload" then return Dialog.info(result.unchanged and "云端位置相同，已确认当前基线。" or "阅读进度已上传并回读确认。")
         else return Dialog.info("云端进度已应用并保存基线，可撤销恢复。") end
     end
-    if operation=="list" then cloud:list(opts,completed)
+    if operation=="list" then
+        if cached then UIManager:scheduleIn(0.1,function()
+            if view.closed then return completed(require('modules/errors').new('CANCELLED','已关闭书库，取消刷新')) end
+            cloud:list(opts,completed)
+        end)
+        else cloud:list(opts,completed) end
     elseif operation=="download_book" then cloud:download_book(entry,opts,completed)
     elseif operation=="delete_book" then cloud:delete_book(entry,opts,completed)
+    elseif operation=='repair_book' then cloud:repair_book(entry,opts,completed)
     elseif operation=="upload_book" then cloud:upload_book(context,opts,completed)
     else cloud:progress_operation(operation,context,opts,completed) end
 end

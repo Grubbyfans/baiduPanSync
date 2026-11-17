@@ -69,6 +69,24 @@ function Grid:rebuild()
     self:build()
     UI:setDirty(self,'ui',nil,true)
 end
+function Grid:updateResult(result)
+    if self.closed then return end
+    self.result=result;self:rebuild()
+end
+function Grid:unpublished()
+    local buttons,dialog={},nil
+    for _,entry in ipairs(self.result.unpublished or {}) do
+        local selected=entry
+        buttons[#buttons+1]={{text=string.format('未发布 · %s… · %.2f MiB',entry.book_id:sub(1,16),entry.size/1048576),
+            callback=function()
+                UI:close(dialog)
+                if not self.closed and self.on_repair then self.on_repair(selected) end
+            end}}
+    end
+    buttons[#buttons+1]={{text='返回书库',callback=function()UI:close(dialog)end}}
+    dialog=Buttons:new{title='未发布书籍\n选择一本，填写书名后校验并补全发布。',buttons=buttons,rows_per_page=6}
+    UI:show(dialog)
+end
 function Grid:onSetDimensions()
     self.dimen.w=Screen:getWidth();self.dimen.h=Screen:getHeight()
     self:rebuild()
@@ -100,10 +118,20 @@ function Grid:options()
         {{text=_('按文件大小排序'),callback=function()
             UI:close(dialog);self.state.order='size';self.page=1;self:rebuild()
         end}},
+        {{text=_('刷新书库'),enabled=self.on_refresh~=nil,callback=function()
+            UI:close(dialog);if not self.closed and self.on_refresh then self.on_refresh() end
+        end}},
+        {{text=string.format('修复未发布书籍（%d）',#(self.result.unpublished or {})),
+            enabled=self.on_repair~=nil and #(self.result.unpublished or {})>0,callback=function()
+                UI:close(dialog);if not self.closed then self:unpublished() end
+            end}},
         {{text=_('书库信息'),callback=function()
             UI:close(dialog)
             local lines={'服务：'..self.result.backend,'书籍：'..#self.result.entries,
                 '异常记录：'..#self.result.issues}
+            if self.result.updated_at then lines[#lines+1]='最近刷新：'..os.date('%Y-%m-%d %H:%M',self.result.updated_at) end
+            if self.result.cached then lines[#lines+1]='当前显示本机缓存，操作前仍会核对云端版本。' end
+            if self.result.refresh_error then lines[#lines+1]='刷新失败：'..self.result.refresh_error end
             for _,issue in ipairs(self.result.issues) do lines[#lines+1]=issue.path or '未知位置' end
             require('ui/progress_dialog').info(table.concat(lines,'\n'))
         end}},
@@ -170,11 +198,13 @@ end
 
 function Grid:build()
     local w,h=self.dimen.w,self.dimen.h
-    local title=Title:new{width=w,fullscreen=true,align='center',title=_('云端书库'),
+    local caption=self.result.refreshing and '云端书库 · 缓存刷新中' or self.result.cached and '云端书库 · 本机缓存' or '云端书库'
+    local title=Title:new{width=w,fullscreen=true,align='center',title=caption,
         left_icon='appbar.search',left_icon_tap_callback=function()self:search()end,
         close_callback=function()self:close()end}
     local toolbar=ButtonTable:new{width=w,buttons={{
-        {text=#self.result.issues>0 and _('排序 / 信息（有异常）') or _('排序 / 信息'),callback=function()self:options()end},
+        {text=#(self.result.unpublished or {})>0 and string.format('排序 / 管理 · 未发布 %d',#self.result.unpublished)
+            or #self.result.issues>0 and _('排序 / 管理（有异常）') or _('排序 / 管理'),callback=function()self:options()end},
         {text=self.state.query~='' and _('清除搜索') or _('搜索书籍'),callback=function()
             if self.state.query and self.state.query~='' then
                 self.state.query='';self.page=1;self:rebuild()
@@ -226,7 +256,8 @@ function Grid:build()
         body:free()
         body=Center:new{dimen=Geom:new{w=w,h=h-header-footer:getSize().h},
             Text:new{width=math.floor(w*0.8),alignment='center',face=Font:getFace('cfont',20),
-                text=#self.result.entries==0 and _('书库为空\n在另一设备上传 EPUB 后即可浏览。')
+                text=#self.result.entries==0 and #(self.result.unpublished or {})>0 and '发现未发布的 EPUB\n请在“排序 / 管理”中选择“修复未发布书籍”。'
+                    or #self.result.entries==0 and _('书库为空\n在另一设备上传 EPUB 后即可浏览。')
                     or _('未找到匹配书籍\n请更换关键词或清除搜索。')}}
     end
     self[1]=Frame:new{width=w,height=h,padding=0,margin=0,bordersize=0,background=BB.COLOR_WHITE,
