@@ -36,6 +36,7 @@ describe('persistent plugin page',function()
             local dialog=Buttons:new{title='result',buttons={{{text='OK'}}}}
             shown[#shown+1]=dialog;UI:show(dialog)
         end
+        page:onMenuSelect(page.item_table[3])
         page:onMenuSelect(page.item_table[2])
         assert.is_true(visible(page));assert.is_true(visible(shown[1]))
         UI:close(shown[1]);assert.is_equal(page,plugin.home_page);assert.is_true(visible(page))
@@ -45,14 +46,14 @@ describe('persistent plugin page',function()
         local called=0
         plugin.onUploadBook=function()called=called+1 end
         plugin.dav_busy=true;page:refresh()
-        assert.is_false(page.item_table[4].select_enabled)
-        page:onMenuSelect(page.item_table[4]);assert.is_equal(0,called)
+        assert.is_false(page.item_table[2].select_enabled)
+        page:onMenuSelect(page.item_table[2]);assert.is_equal(0,called)
         plugin.dav_busy=false;plugin:refreshHome()
-        page:onMenuSelect(page.item_table[4]);assert.is_equal(1,called)
+        page:onMenuSelect(page.item_table[2]);assert.is_equal(1,called)
         plugin.dav_adapter=nil;plugin.dav_profile=nil;plugin:refreshHome()
-        assert.is_false(page.item_table[5].select_enabled)
-        assert.is_true(page.item_table[9].select_enabled)
-        assert.is_truthy(page.item_table[9].text:find('未配置',1,true))
+        assert.is_false(page.item_table[1].select_enabled)
+        assert.is_true(page.item_table[5].select_enabled)
+        assert.is_truthy(page.item_table[5].text:find('请先配置',1,true))
     end)
     it('does not reopen a page after the user leaves or after a document opens',function()
         plugin:showHome();local page=plugin.home_page
@@ -91,7 +92,8 @@ describe('persistent plugin page',function()
     end)
     it('returns to the same page after saving the actual WebDAV configuration dialog',function()
         plugin:showHome();local home=plugin.home_page
-        home:onMenuSelect(home.item_table[9])
+        home:onMenuSelect(home.item_table[5])
+        home:onMenuSelect(home.item_table[2])
         local input
         for _,window in ipairs(UI._window_stack)do
             if window.widget.title=='WebDAV 配置'then input=window.widget end
@@ -103,8 +105,8 @@ describe('persistent plugin page',function()
         input.buttons[1][2].callback()
         assert.is_truthy(saved);assert.is_false(visible(input))
         assert.is_equal(home,plugin.home_page);assert.is_true(visible(home))
-        assert.is_true(home.item_table[5].select_enabled)
-        assert.is_truthy(home.item_table[9].text:find('已配置',1,true))
+        assert.is_true(home.item_table[3].select_enabled)
+        assert.is_truthy(home.item_table[2].text:find('修改',1,true))
     end)
 
 end)

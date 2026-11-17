@@ -8,7 +8,7 @@ local Menu = {}
 --- Builds the submenu registered by main.lua.
 -- @tparam table plugin BaiduPanSync instance
 function Menu.actions(plugin)
-    return {
+    local actions = {
             { text = _("上传当前阅读进度到云端"), callback = function() plugin:onUploadCloudProgress() end,
                 enabled_func = function() return plugin:isCurrentBookSupported() end },
             { text = _("查询云端阅读进度"), callback = function() plugin:onQueryCloudProgress() end,
@@ -43,6 +43,13 @@ function Menu.actions(plugin)
                 callback = function() require("ui/backend_dialog").probe(plugin) end,
             },
     }
+    local ids={'upload_progress','query_progress','download_progress','upload_book','library',
+        'export_progress','import_progress','undo','configure','probe'}
+    for i,item in ipairs(actions) do
+        item.id=ids[i]
+        item.requires_cloud=i<=5 or i==10
+    end
+    return actions
 end
 
 function Menu.build(plugin)

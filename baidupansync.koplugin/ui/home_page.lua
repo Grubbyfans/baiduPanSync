@@ -1,23 +1,53 @@
 -- A full-screen native KOReader page. Selecting actions never closes it.
 local Menu=require('ui/widget/menu')
-local UI=require('ui/uimanager')
 local Actions=require('ui/menu')
 local _=require('gettext')
-local Home=Menu:extend{is_borderless=true,items_per_page=10}
+local Home=Menu:extend{is_borderless=true,items_per_page=6}
+local sections={
+    progress={title=_('阅读进度'),hint=_('先查看云端进度，再选择上传或应用；应用后可撤销。'),
+        actions={'query_progress','upload_progress','download_progress','undo'}},
+    local_backup={title=_('本地进度备份'),hint=_('导出或导入本机 JSON 文件，用于手动备份和交换。'),
+        actions={'export_progress','import_progress'}},
+    settings={title=_('连接设置'),hint=_('配置 WebDAV 服务，或检查连接是否正常。'),
+        actions={'configure','probe'}},
+}
+
+function Home:openSection(section)
+    self.section=section
+    self:refresh(true)
+end
 
 function Home:items()
     local plugin=self.plugin
     local busy=plugin.dav_busy or plugin.undo_busy or (plugin.engine and plugin.engine._active)
-    local items=Actions.actions(plugin)
-    for index,item in ipairs(items) do
+    local actions={}
+    for _,item in ipairs(Actions.actions(plugin)) do
         local enabled=not busy and (not item.enabled_func or item.enabled_func())
-        if index<=5 and not plugin.dav_adapter then enabled=false end
-        if index==8 and not plugin:isCurrentBookSupported() then enabled=false end
+        if item.requires_cloud and not plugin.dav_adapter then enabled=false end
+        if item.id=='undo' and not plugin:isCurrentBookSupported() then enabled=false end
         item.select_enabled=enabled and true or false
         item.dim=not enabled
+        actions[item.id]=item
     end
     local profile=plugin.dav_profile
-    items[9].text=profile and _('WebDAV 配置（已配置）') or _('WebDAV 配置（未配置）')
+    actions.configure.text=profile and _('修改 WebDAV 配置') or _('配置 WebDAV')
+    actions.probe.text=_('测试连接')
+    actions.library.text=_('云端书库 · 下载书籍')
+    actions.upload_book.text=_('上传当前书籍')
+    local items={}
+    local section=sections[self.section]
+    if section then
+        items[1]={text=_('‹ 返回主页'),id='back',select_enabled=true,callback=function()self:openSection(nil)end}
+        for _,id in ipairs(section.actions) do items[#items+1]=actions[id] end
+    else
+        items={actions.library,actions.upload_book}
+        for _,id in ipairs({'progress','local_backup','settings'}) do
+            local target=id
+            items[#items+1]={id=id,text=sections[id].title..' ›',select_enabled=true,
+                callback=function()self:openSection(target)end}
+        end
+        if not plugin.dav_adapter then items[5].text=_('连接设置 · 请先配置 ›') end
+    end
     return items
 end
 
@@ -26,7 +56,9 @@ function Home:status()
     local name=book and book.file and book.file:match('([^/]+)$')
     local backend=self.plugin.dav_adapter and _('WebDAV 已配置') or _('请先配置 WebDAV')
     if self.plugin.dav_load_error then backend=_('WebDAV 配置需检查') end
-    return backend..' · '..(name and (_('当前书籍：')..name) or _('当前未打开书籍'))
+    local section=sections[self.section]
+    return backend..' · '..(name and (_('当前书籍：')..name) or _('当前未打开书籍'))..
+        (section and ('\n'..section.hint) or '')
 end
 
 function Home:init()
@@ -36,10 +68,16 @@ function Home:init()
     Menu.init(self)
 end
 
-function Home:refresh()
+function Home:refresh(reset)
     if self.closed then return end
-    local selected=self.itemnumber or ((self.page-1)*self.perpage+1)
+    self.title=sections[self.section] and sections[self.section].title or _('书籍与阅读进度同步')
+    local selected=reset and 1 or self.itemnumber or ((self.page-1)*self.perpage+1)
     self:switchItemTable(self.title,self:items(),selected,nil,self:status())
+end
+
+function Home:onClose()
+    if self.section then self:openSection(nil);return true end
+    return Menu.onClose(self)
 end
 
 function Home:onMenuSelect(item)
