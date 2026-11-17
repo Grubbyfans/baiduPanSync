@@ -13,7 +13,9 @@ package.loaded['ui/uimanager']={}
 package.loaded.gettext=function(s)return s end
 local Home=require('ui/home_page')
 local calls={}
-local plugin={ui={},dav_adapter={},dav_profile={},
+local about
+package.loaded['ui/progress_dialog']={info=function(text,persistent)about={text=text,persistent=persistent}end}
+local plugin={ui={},dav_adapter={},dav_profile={},version='fixture-version',
     isCurrentBookSupported=function()return true end,hasRestorePoint=function()return true end}
 for _,method in ipairs({'onCloudLibrary','onUploadBook','onQueryCloudProgress','onUploadCloudProgress',
     'onDownloadCloudProgress','onUndoRestore'})do
@@ -23,7 +25,8 @@ end
 local page=Home:extend{plugin=plugin,page=1,perpage=6}
 page:init();page:refresh()
 local function select(index)page:onMenuSelect(page.item_table[index])end
-assert(#page.item_table==4)
+assert(#page.item_table==5)
+select(5);assert(about.persistent and about.text:find(plugin.version,1,true) and not page.closed)
 select(1);assert(calls.onCloudLibrary==1)
 select(2);assert(calls.onUploadBook==1)
 select(3);assert(page.section=='progress' and #page.item_table==5)

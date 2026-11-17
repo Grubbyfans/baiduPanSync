@@ -49,6 +49,12 @@ function Home:items()
                 callback=function()self:openSection(target)end}
         end
         if not cloud_ready then items[4].text=_('连接设置 · 请先配置 ›') end
+        items[#items+1]={id='about',text=_('关于')..' · v'..self.plugin.version,select_enabled=true,
+            callback=function()
+                require('ui/progress_dialog').info('BaiduPanSync\n'.._('书籍与阅读进度同步')..
+                    '\n\n'.._('插件版本：')..self.plugin.version..
+                    '\n'.._('同步方式：WebDAV / 百度网盘'),true)
+            end}
     end
     return items
 end
