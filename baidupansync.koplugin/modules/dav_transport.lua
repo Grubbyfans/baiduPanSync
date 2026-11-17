@@ -6,11 +6,15 @@ local function writing(req)
     return req.writing or req.method=='PUT' or req.method=='MKCOL' or req.method=='DELETE'
 end
 function M.perform(req)
+    local streaming=req.upload_path or req.download_path
+    local block_timeout=streaming and 60 or 15
+    local total_timeout=streaming and math.min(3600,math.max(300,math.ceil((req.upload_size or req.max_bytes or 0)/32768)+60)) or 120
     local secure=req.url:match('^https:')~=nil
     local create,tls_state
     if secure then
         local reason
-        create,reason,tls_state=require('modules/dav_tls').factory(req.cafile)
+        create,reason,tls_state=require('modules/dav_tls').factory(req.cafile,
+            {block_timeout=block_timeout,total_timeout=total_timeout,handshake_timeout=30})
         if not create then return Errors.new('TLS',reason) end
         local url=require('socket.url')
         local parsed=url.parse(req.url);parsed.port=parsed.port or 443
@@ -46,7 +50,7 @@ function M.perform(req)
         local prefix,suffix=req.upload_prefix,req.upload_suffix
         local prefix_sent,suffix_sent=false,false
         source=function()
-            if require('socket').gettime()-started>120 then return nil,'upload timeout' end
+            if require('socket').gettime()-started>total_timeout then return nil,'upload timeout' end
             if prefix and not prefix_sent then prefix_sent=true;return prefix end
             if req.upload_size and uploaded==req.upload_size then
                 if suffix and not suffix_sent then suffix_sent=true;return suffix end
@@ -88,12 +92,12 @@ function M.perform(req)
     end
     headers['Content-Length']=tostring(req.upload_path and
         ((req.upload_size or 0)+#(req.upload_prefix or '')+#(req.upload_suffix or '')) or (req.body and #req.body) or 0)
-    socketutil:set_timeout(10,120)
+    socketutil:set_timeout(block_timeout,total_timeout)
     local ok,success,status,response_headers=pcall(http.request,{
         url=req.url,method=req.method,headers=headers,redirect=false,create=create,
         source=source,
         sink=function(chunk)
-            if require('socket').gettime()-started>120 then return nil,'total timeout' end
+            if require('socket').gettime()-started>total_timeout then return nil,'total timeout' end
             if chunk then
                 bytes=bytes+#chunk
                 if bytes>(req.max_bytes or 1024*1024) then return nil,'response too large' end
@@ -117,7 +121,21 @@ function M.perform(req)
     report(req.upload_path and uploaded or bytes,true)
     if not ok or not success or not output_ok then
         local write=writing(req)
-        return Errors.new(write and 'UNCERTAIN' or (tls_state and tls_state.code or 'NETWORK'),'连接或传输未完成（HTTPS 请检查证书、SAN 与 CA）；请重新查询结果',
+        local raw=ok and status or success
+        raw=type(raw)=='string' and raw:lower() or ''
+        local reason=(raw=='timeout' or raw=='wantread' or raw=='wantwrite') and '等待网络数据超时'
+            or (raw=='total timeout' or raw=='upload timeout') and '超过本次传输总时限'
+            or raw=='closed' and '远端提前关闭连接'
+            or raw=='response too large' and '响应超过预期大小'
+            or (raw=='disk write failed' or not output_ok) and '写入或关闭本地临时文件失败'
+            or raw=='san identity mismatch' and '证书主机名校验失败'
+            or raw:find('certificate',1,true) and '证书链校验失败'
+            or raw:find('resolve',1,true) and '域名解析失败'
+            or '连接或传输中断'
+        local message=string.format('%s；阶段：%s；已接收 %d 字节，耗时 %.1f 秒（等待上限 %d 秒，总时限 %d 秒）。请核对网络后重新操作。',
+            reason,tls_state and tls_state.stage or 'HTTP传输',bytes,
+            math.max(0,require('socket').gettime()-started),block_timeout,total_timeout)
+        return Errors.new(write and 'UNCERTAIN' or (tls_state and tls_state.code or 'NETWORK'),message,
             {retryable=not write,outcome=write and 'uncertain' or 'failed'})
     end
     if req.expected_sha256 and req.upload_path and (upload_hash~=req.expected_sha256 or uploaded~=req.upload_size) then

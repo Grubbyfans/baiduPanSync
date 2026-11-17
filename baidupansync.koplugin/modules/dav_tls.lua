@@ -68,7 +68,8 @@ function M.matches(cert,host)
     end
     return false
 end
-function M.factory(cafile)
+function M.factory(cafile,opts)
+    opts=opts or {}
     local loaded,ssl=pcall(require,'ssl')
     if not loaded then return nil,'KOReader 缺少可用的 LuaSec TLS 模块，请检查安装' end
     local reason
@@ -77,23 +78,35 @@ function M.factory(cafile)
     local socket=require('socket')
     local state={code='NETWORK'}
     local function create()
-        local conn={sock=assert(socket.tcp())}
+        local conn={sock=assert(socket.tcp()),timeouts={}}
+        function conn:settimeout(value,mode)
+            self.timeouts=self.timeouts or {}
+            self.timeouts[mode or 'b']=value
+            return self.sock:settimeout(value,mode)
+        end
         function conn:connect(host,port)
+            state.stage='TCP连接';state.code='NETWORK'
             local ok,e=self.sock:connect(host,port)
             if not ok then return nil,e end
             state.code='TLS'
+            state.stage='TLS握手'
             local secure,wrap_err=ssl.wrap(self.sock,{mode='client',protocol='any',verify='peer',
                 cafile=cafile,options={'all','no_sslv2','no_sslv3','no_tlsv1','no_tlsv1_1'}})
             if not secure then self.sock:close();return nil,wrap_err end
             self.sock=secure
-            secure:settimeout(5)
+            secure:settimeout(opts.handshake_timeout or 30)
             local sni_ok=pcall(function()secure:sni(host)end)
             if not sni_ok then secure:close();return nil,'SNI unavailable' end
             local hand,hand_err=secure:dohandshake()
             if not hand then secure:close();return nil,hand_err end
             local valid,matched=pcall(M.matches,secure:getpeercertificate(),host)
             if not valid or not matched then secure:close();return nil,'SAN identity mismatch' end
+            -- ssl.wrap creates a new socket timeout context. A handshake-only
+            -- limit must not remain active for the entire EPUB download.
+            secure:settimeout((self.timeouts and self.timeouts.t) or opts.total_timeout or 120,'t')
+            secure:settimeout((self.timeouts and self.timeouts.b) or opts.block_timeout or 15,'b')
             state.code='NETWORK'
+            state.stage='收发HTTP数据'
             return 1
         end
         return setmetatable(conn,{__index=function(self,key)

@@ -32,16 +32,22 @@ mock=false
 -- Check the real package fallback is actually present and readable.
 assert(TLS.ca_file(nil,{}))
 local parameters
+local timeouts={}
 package.loaded.ssl={wrap=function(sock,p)
     parameters=p
-    return {settimeout=function()end,sni=function()return true end,dohandshake=function()return true end,
+    return {settimeout=function(_,value,mode)timeouts[#timeouts+1]={value,mode}end,sni=function()return true end,dohandshake=function()return true end,
         getpeercertificate=function()return {}end}
 end}
-package.loaded.socket={tcp=function()return {connect=function()return true end}end}
+package.loaded.socket={tcp=function()return {connect=function()return true end,settimeout=function()return 1 end}end}
 local matches=TLS.matches;TLS.matches=function()return true end
 local factory=assert(TLS.factory())
 assert(factory():connect('openapi.baidu.com',443))
 assert(parameters.verify=='peer' and parameters.cafile and parameters.options[5]=='no_tlsv1_1')
+timeouts={}
+local slow_factory=assert(TLS.factory(nil,{block_timeout=60,total_timeout=300,handshake_timeout=30}))
+local slow=slow_factory();assert(slow:settimeout(60));assert(slow:connect('d.pcs.baidu.com',443))
+assert(timeouts[1][1]==30 and timeouts[2][1]==300 and timeouts[2][2]=='t'
+    and timeouts[3][1]==60 and timeouts[3][2]=='b','handshake timeout must be replaced for file I/O')
 TLS.matches=function()return false end
 package.loaded.ssl.wrap=function()
     return {settimeout=function()end,sni=function()return true end,dohandshake=function()return true end,

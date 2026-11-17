@@ -5,7 +5,8 @@ local f=assert(io.open(file,'wb'));f:write('prefix-padding'..raw..'suffix-paddin
 local captured,download=false,false
 package.loaded.socket={gettime=function()return 0 end}
 package.loaded.ltn12={source={string=function(value)local sent=false;return function()if not sent then sent=true;return value end end end}}
-package.loaded.socketutil={set_timeout=function()end,reset_timeout=function()end}
+local block_limit,total_limit
+package.loaded.socketutil={set_timeout=function(_,block,total)block_limit,total_limit=block,total end,reset_timeout=function()end}
 package.loaded['ffi/util']={fsyncOpenedFile=function()end}
 local fake={data='longer redirect response tail',position=0,write=function(self,chunk)
     self.data=self.data:sub(1,self.position)..chunk..self.data:sub(self.position+#chunk+1)
@@ -38,6 +39,7 @@ local req={url='http://fixture/upload',method='POST',writing=true,upload_path=fi
 local e,r=Transport.perform(req)
 assert(not e,e and e.message)
 assert(captured=='MULTIPART-START'..raw..'MULTIPART-END' and r.uploaded==#raw)
+assert(block_limit==60 and total_limit>=300)
 req.expected_sha256=string.rep('0',64)
 e=Transport.perform(req);assert(e.code=='UNCERTAIN')
 local open=io.open
@@ -71,6 +73,16 @@ e,r=Transport.perform{url='http://fixture/download',method='GET',download_path='
 assert(not e and fake.data=='ABC' and declared==1)
 e,r=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
 assert(not e and fake.data=='ABC' and declared==1,'existing declaration must be reused')
+local request=package.loaded['socket.http'].request
+package.loaded['socket.http'].request=function(req)req.sink('AB');return nil,'wantread' end
+fake.data='';fake.position=0
+e=Transport.perform{url='http://fixture/download',method='GET',download_path='fixture-download',reset_download=true}
+assert(e.code=='NETWORK' and e.message:find('等待网络数据超时',1,true) and e.message:find('2 字节',1,true))
+assert(not e.message:find('CA',1,true),'network timeout must not masquerade as a CA error')
+package.loaded['socket.http'].request=function()return nil,'closed' end
+e=Transport.perform{url='http://fixture/download',method='GET'}
+assert(e.message:find('远端提前关闭连接',1,true))
+package.loaded['socket.http'].request=request
 local diagnostic=require('modules/errors').exception("dav_transport.lua:68: missing declaration for symbol 'ftruncate'")
 assert(diagnostic.message:find('缺少系统接口',1,true))
 io.open=open
