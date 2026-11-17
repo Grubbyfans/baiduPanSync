@@ -1,7 +1,7 @@
 --[[--
-BaiduPanSync 0.6.7: manual WebDAV EPUB and reading-progress synchronization.
+BaiduPanSync 0.7.0: manual WebDAV EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
-Baidu integration is deferred by the user.
+Baidu C2 provides OOB authorization and isolated API verification.
 ]]
 
 local DataStorage = require("datastorage")
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.6.7"
+local VERSION = "0.7.0"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -42,6 +42,9 @@ function BaiduPanSync:init()
         event = Event,
     }
     self.backend_store = require("modules/backend_store"):new{dir=self.settings_dir, config=self.config}
+    self.baidu_store = require('modules/baidu_store'):new{dir=self.settings_dir}
+    local config_state=self.config:_read()
+    self.active_backend=config_state and config_state.data.activeBackendType or 'webdav'
     self.dav_profile, self.dav_load_error = self.backend_store:load()
     if self.dav_profile then
         self.dav_adapter, self.dav_load_error = require("modules/webdav"):new(self.dav_profile)
@@ -70,7 +73,14 @@ function BaiduPanSync:closeHome()
 end
 
 function BaiduPanSync:onCloseDocument()
+    if self.baidu_session then self.baidu_session:stop('cancelled') end
     self:closeHome()
+end
+function BaiduPanSync:onSuspend()
+    if self.baidu_session then self.baidu_session:stop('cancelled') end
+end
+function BaiduPanSync:onNetworkDisconnected()
+    if self.baidu_session then self.baidu_session:stop('network_changed') end
 end
 
 function BaiduPanSync:isCurrentBookSupported()
@@ -108,14 +118,14 @@ function BaiduPanSync:_hash_opts()
 end
 
 function BaiduPanSync:onUndoRestore()
-    if self.undo_busy or self.dav_busy then return Dialog.info("已有任务正在进行，请稍候。") end
+    if self.undo_busy or self.dav_busy or self.baidu_busy then return Dialog.info("已有任务正在进行，请稍候。") end
     local restore_point, rp_err = self.store:get_restore_point()
     if rp_err then return Dialog.error(rp_err) end
     if not restore_point then
         return Dialog.info(_("没有可撤销的进度恢复点。"))
     end
     Dialog.confirm_undo(restore_point, function()
-        if self.undo_busy or self.dav_busy then return Dialog.info("已有任务正在进行，请稍候。") end
+        if self.undo_busy or self.dav_busy or self.baidu_busy then return Dialog.info("已有任务正在进行，请稍候。") end
         self.undo_busy = true
         self.progress:undo(function(undo_err, result)
             self.undo_busy = false
@@ -141,7 +151,8 @@ function BaiduPanSync:onUndoRestore()
 end
 
 function BaiduPanSync:_cloud(operation, entry)
-    if self.dav_busy or self.undo_busy then return Dialog.info("已有任务正在进行，请稍候。") end
+    if self.dav_busy or self.undo_busy or self.baidu_busy then return Dialog.info("已有任务正在进行，请稍候。") end
+    if self.active_backend=='baidu' then return Dialog.info('百度目前只开放 C2 授权与测试。书籍及阅读进度同步请切回 WebDAV。') end
     if self.dav_load_error then return Dialog.error(self.dav_load_error) end
     if not self.dav_adapter then return Dialog.info("请先配置 WebDAV。") end
     local context

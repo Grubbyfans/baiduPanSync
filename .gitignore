@@ -1,0 +1,6 @@
+# Runtime account credentials must never be committed.
+**/baidu_credentials.json
+**/baidu_credentials.json.*.tmp
+**/credentials.json
+**/credentials.json.*.tmp
+__pycache__/

@@ -33,13 +33,14 @@ function Widget:free()
 end
 function Widget:onShowKeyboard()end
 function Widget:getInputText()return self.input end
+function Widget:setText(text)self.text=text end
 local UI={show=function(_,w)shown=w end,close=function(_,w)
     if w.onCloseWidget then w:onCloseWidget()else w.closed=true end;w:free()
 end,setDirty=function()end}
 package.loaded['ui/uimanager']=UI
 for _,name in ipairs({'container/inputcontainer','container/centercontainer','container/framecontainer',
     'verticalgroup','horizontalgroup','verticalspan','horizontalspan','textboxwidget','imagewidget',
-    'titlebar','buttontable','buttondialog','confirmbox','inputdialog'})do
+    'titlebar','buttontable','buttondialog','confirmbox','inputdialog','multiinputdialog','qrwidget'})do
     package.loaded['ui/widget/'..name]=Widget:extend{kind=name}
 end
 package.loaded['ui/geometry']=Widget
@@ -97,3 +98,25 @@ assert(Cloud.library_title{title=' ',fileName='三国演义.epub'}=='三国演�
 assert(#Cloud.library_entries(result,{query='book.'})==0)
 assert(Cloud.library_entries(result,{query='book3'})[1]==result.entries[3])
 print('cover grid, search, sorting, navigation and resource regressions passed')
+local QRPage=require('ui/baidu_auth_dialog')
+local cancelled,code=0,nil
+local qr=QRPage:new{session={url='http://192.168.1.2:1234/authorize/fixture'},
+    on_cancel=function()cancelled=cancelled+1 end,on_code=function(v)code=v end}
+qr:update(599,'waiting');assert(qr.status.text:find('9:59',1,true))
+qr:manual();shown.input='fixture-code';shown.buttons[1][2].callback();assert(code=='fixture-code')
+qr:close();qr:close();assert(cancelled==1)
+print('Baidu QR page countdown, manual fallback and close lifecycle regressions passed')
+local BaiduUI=require('ui/baidu_dialog')
+local state={data={activeBackendType='webdav',activeBackendId='dav-id'}}
+local credential={backend_id='baidu-id',last_probe={backend_id='baidu-id'},expires_at=os.time()+3600}
+local plugin={baidu_store={load=function()return credential end},
+    config={_read=function()return state end,_write=function()return true end},
+    dav_adapter={backend_id='dav-id'},refreshHome=function()end}
+BaiduUI.switch_backend(plugin);assert(shown.buttons[2][1].enabled)
+shown.buttons[2][1].callback()
+assert(plugin.active_backend=='baidu' and state.data.activeBackendId=='baidu-id')
+BaiduUI.switch_backend(plugin);shown.buttons[1][1].callback()
+assert(plugin.active_backend=='webdav' and state.data.activeBackendId=='dav-id')
+credential.expires_at=0;BaiduUI.switch_backend(plugin)
+assert(not shown.buttons[2][1].enabled)
+print('Explicit backend selection and expired-auth gating regressions passed')

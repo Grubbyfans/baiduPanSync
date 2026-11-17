@@ -3,7 +3,7 @@ local MultiInputDialog=require('ui/widget/multiinputdialog')
 local Dialog=require('ui/progress_dialog')
 local M={}
 function M.configure(plugin)
-    if plugin.dav_busy or plugin.undo_busy then return Dialog.info('连接测试进行中，不能修改目标。') end
+    if plugin.dav_busy or plugin.undo_busy or plugin.baidu_busy then return Dialog.info('连接测试进行中，不能修改目标。') end
     if plugin.dav_load_error then Dialog.error(plugin.dav_load_error) end
     local profile=plugin.dav_profile or {}
     local input
@@ -38,7 +38,7 @@ function M.configure(plugin)
     input:onShowKeyboard()
 end
 function M.probe(plugin)
-    if plugin.dav_busy or plugin.undo_busy then return Dialog.info('已有连接测试在执行。') end
+    if plugin.dav_busy or plugin.undo_busy or plugin.baidu_busy then return Dialog.info('已有连接测试在执行。') end
     if not plugin.dav_adapter then return Dialog.info('请先配置 WebDAV。') end
     plugin.dav_busy=true
     local adapter=plugin.dav_adapter -- fixed target for the whole task

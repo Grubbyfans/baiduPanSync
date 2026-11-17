@@ -2,6 +2,9 @@
 -- HTTPS uses independent chain + SAN verification; missing trust fails closed.
 local Errors = require('modules/errors')
 local M = {}
+local function writing(req)
+    return req.writing or req.method=='PUT' or req.method=='MKCOL' or req.method=='DELETE'
+end
 function M.perform(req)
     local secure=req.url:match('^https:')~=nil
     local create,tls_state
@@ -28,7 +31,8 @@ function M.perform(req)
         local f=io.open(req.progress_path,'r+b')
         if f then f:write(tostring(count));f:close() end
     end
-    local headers={Authorization='Basic '..mime.b64(req.username..':'..req.password),Connection='close'}
+    local headers={Connection='close'}
+    if req.username then headers.Authorization='Basic '..mime.b64(req.username..':'..req.password) end
     for k,v in pairs(req.headers or {}) do headers[k]=v end
     local input,output,source
     local digest=req.upload_path and require('ffi/sha2').sha256()
@@ -77,7 +81,7 @@ function M.perform(req)
     local upload_hash=digest and digest()
     report(req.upload_path and uploaded or bytes,true)
     if not ok or not success or not output_ok then
-        local write=req.method=='PUT' or req.method=='MKCOL' or req.method=='DELETE'
+        local write=writing(req)
         return Errors.new(write and 'UNCERTAIN' or (tls_state and tls_state.code or 'NETWORK'),'连接或传输未完成（HTTPS 请检查证书、SAN 与 CA）；请重新查询结果',
             {retryable=not write,outcome=write and 'uncertain' or 'failed'})
     end
@@ -123,7 +127,7 @@ function M.request(req,done)
         if marker then os.remove(marker) end
         if not completed then
             handle.cancelled=true
-            local write=req.method=='PUT' or req.method=='MKCOL' or req.method=='DELETE'
+            local write=writing(req)
             e=Errors.new(write and 'UNCERTAIN' or 'CANCELLED',
                 write and '已取消等待，远端写入结果未知，请重新查询' or '已取消请求',
                 {outcome=write and 'uncertain' or 'failed'})

@@ -45,7 +45,7 @@ function M:save(profile)
     if not wrote or not closed then os.remove(tmp);return nil,Errors.new('IO','凭据写入失败') end
     if not os.rename(tmp,self.file) then os.remove(tmp);return nil,Errors.new('IO','凭据替换失败') end
     state.data.webdav={type='webdav',root_url=profile.root_url,username=profile.username,cafile=profile.cafile}
-    state.data.activeBackendId=id
+    if state.data.activeBackendType~='baidu' then state.data.activeBackendId=id end
     return self.config:_write(state)
 end
 return M

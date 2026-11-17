@@ -11,8 +11,8 @@ describe("plugin entry point", function()
 
     it("loads metadata and exposes a version", function()
         assert.is_true(type(meta.fullname) == "string" and #meta.fullname > 0)
-        assert.is_equal("0.6.7", meta.version)
-        assert.is_equal("0.6.7", Plugin.version)
+        assert.is_equal("0.7.0", meta.version)
+        assert.is_equal("0.7.0", Plugin.version)
     end)
 
     it("initializes a local store and service under the settings directory", function()
@@ -46,7 +46,7 @@ describe("plugin entry point", function()
         assert.is_nil(menu.sub_item_table)
         assert.is_equal("function",type(menu.callback))
         local actions=require("ui/menu").actions(instance)
-        assert.is_equal(8,#actions)
+        assert.is_equal(10,#actions)
         for _,item in ipairs(actions)do assert.is_equal("function",type(item.callback))end
     end)
 

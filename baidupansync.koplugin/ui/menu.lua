@@ -32,12 +32,16 @@ function Menu.actions(plugin)
                 text = _("WebDAV 连接与测试文件验证"),
                 callback = function() require("ui/backend_dialog").probe(plugin) end,
             },
+            { text = _("百度网盘授权与验证"),
+                callback = function() require('ui/baidu_dialog').show(plugin) end },
+            { text = _("切换同步后端"),callback = function() require('ui/baidu_dialog').switch_backend(plugin) end },
     }
     local ids={'upload_progress','query_progress','download_progress','upload_book','library',
-        'undo','configure','probe'}
+        'undo','configure','probe','baidu','switch_backend'}
     for i,item in ipairs(actions) do
         item.id=ids[i]
         item.requires_cloud=i<=5 or i==8
+        item.requires_book_backend=i<=5
     end
     return actions
 end
