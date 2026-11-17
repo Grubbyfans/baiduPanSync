@@ -1,0 +1,82 @@
+README.md
+  h_7f20b2a03eb3b6 7-10,14,20
+baidupansync.koplugin/README.md
+  h_7f20b2a03eb3b6 3,5,7,13-24,28-31,35,37,48-50,52,55-59,62,68,72,76,79-84,88,90,92,94-99,101,103,105-113,116,118-124,126,128,130-132,134-135,137-140,142,144-149,151-178
+baidupansync.koplugin/_meta.lua
+  h_7f20b2a03eb3b6 4-5
+baidupansync.koplugin/main.lua
+  h_7f20b2a03eb3b6 2,4-9,11-12,16,18,23-24,28-29,34,47-49,55-62,78-103,107-124,137-148,150-151,153,155-157
+baidupansync.koplugin/modules/backend_identity.lua
+  h_7f20b2a03eb3b6 1-197
+baidupansync.koplugin/modules/book_identity.lua
+  h_7f20b2a03eb3b6 1-206
+baidupansync.koplugin/modules/config_store.lua
+  h_7f20b2a03eb3b6 1-133
+baidupansync.koplugin/modules/conflict.lua
+  h_7f20b2a03eb3b6 1-94
+baidupansync.koplugin/modules/export_store.lua
+  h_7f20b2a03eb3b6 131,136,139,144-160
+baidupansync.koplugin/modules/hash.lua
+  h_7f20b2a03eb3b6 1-172
+baidupansync.koplugin/modules/progress.lua
+  h_7f20b2a03eb3b6 224-225,298,359,361-364,402,409,438-440
+baidupansync.koplugin/modules/progress_record.lua
+  h_7f20b2a03eb3b6 2,4-5,7-17,21,23,31,53-54,61-62,71,79-83,88-94,97-101,103-116,130-131,142,145,148,153-154,157,163-173,185-196,200,203,206-209,211-216,239,257-263,276-282,287-292,296-297,299-300,306-311
+baidupansync.koplugin/modules/random.lua
+  h_7f20b2a03eb3b6 1-52
+baidupansync.koplugin/modules/sync_engine.lua
+  h_7f20b2a03eb3b6 1-381
+baidupansync.koplugin/modules/sync_state.lua
+  h_7f20b2a03eb3b6 1-196
+baidupansync.koplugin/modules/task.lua
+  h_7f20b2a03eb3b6 1-129
+baidupansync.koplugin/spec/bench/hash_bench.lua
+  h_7f20b2a03eb3b6 1-83
+baidupansync.koplugin/spec/run.sh
+  h_7f20b2a03eb3b6 47-62
+baidupansync.koplugin/spec/unit/backend_identity_spec.lua
+  h_7f20b2a03eb3b6 1-139
+baidupansync.koplugin/spec/unit/book_identity_spec.lua
+  h_7f20b2a03eb3b6 1-157
+baidupansync.koplugin/spec/unit/config_store_spec.lua
+  h_7f20b2a03eb3b6 1-109
+baidupansync.koplugin/spec/unit/conflict_spec.lua
+  h_7f20b2a03eb3b6 1-89
+baidupansync.koplugin/spec/unit/export_store_spec.lua
+  h_7f20b2a03eb3b6 15,19,23,30-35,75,141-146
+baidupansync.koplugin/spec/unit/hash_spec.lua
+  h_7f20b2a03eb3b6 1-172
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  h_7f20b2a03eb3b6 14-15,30-33
+baidupansync.koplugin/spec/unit/progress_integration_spec.lua
+  h_7f20b2a03eb3b6 2-10,13-16,18-19,22,24,26,35,37-40,45,49-102,108-110,112-113,117-121,131-135,144,149-150,175,177-183,185-188,191,194-195,197-201,204-208,212-227,232,235-294
+baidupansync.koplugin/spec/unit/progress_record_spec.lua
+  h_7f20b2a03eb3b6 1-2,5,9,13,20-25,32,35,39,53,55,61-70,77,81-89,91,95,98-99,101-106,109-115,117-123,126,128-129,133-134,137-138,141,146-149,155-161,164-191,194-197
+baidupansync.koplugin/spec/unit/progress_spec.lua
+  h_7f20b2a03eb3b6 169-187
+baidupansync.koplugin/spec/unit/random_spec.lua
+  h_7f20b2a03eb3b6 1-37
+baidupansync.koplugin/spec/unit/sync_engine_spec.lua
+  h_7f20b2a03eb3b6 1-366
+baidupansync.koplugin/spec/unit/sync_state_spec.lua
+  h_7f20b2a03eb3b6 1-141
+baidupansync.koplugin/spec/unit/task_spec.lua
+  h_7f20b2a03eb3b6 1-98
+baidupansync.koplugin/ui/progress_dialog.lua
+  h_7f20b2a03eb3b6 2,4-5,11,31-35,51,58,70,73,101-123,125,127-138,141,144-147,167-201
+阶段A验收记录.md
+  h_7f20b2a03eb3b6 6-7
+阶段B验收记录.md
+  h_7f20b2a03eb3b6 1-151
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "feba47415965e7796248ef69f794455075d0e494",
+  "prompts": {},
+  "humans": {
+    "h_7f20b2a03eb3b6": {
+      "author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
