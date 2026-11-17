@@ -67,6 +67,9 @@ function M.start(o)
         self.message='等待手机填写应用资料'
         self.html=Page.configure(self.path,csrf,o.public_profile)
     else self.html=Page.render(require('modules/baidu_auth').authorization_url(o.app_key,state),self.path,csrf) end
+    local firewall,firewall_error=(o.firewall or require('modules/lan_firewall')).open{ip=ip,port=port}
+    if not firewall then listener:close();return nil,firewall_error end
+    self.firewall=firewall
     -- Network requests fork through KOReader Trapper. The child must not keep
     -- the parent's LAN listener alive after the UI cancels or expires it.
     local has_util,util=pcall(require,'ffi/util')
@@ -88,6 +91,10 @@ function M:stop(reason)
     if self.unschedule then self.unschedule(self.poll) end
     self.listener:close()
     for _,c in ipairs(self.clients) do c.socket:close();c.input=nil;c.output=nil end
+    if self.firewall and not self.firewall:close() then
+        local ok,logger=pcall(require,'logger')
+        if ok then logger.warn('BaiduPanSync: failed to remove temporary authorization firewall rules') end
+    end
     self.clients={};self.csrf=nil;self.html=nil;self.oauth_state=nil;self.on_config=nil
     if self.on_stop then self.on_stop(reason or 'cancelled') end
 end
