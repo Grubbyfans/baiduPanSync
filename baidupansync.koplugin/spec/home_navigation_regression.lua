@@ -16,14 +16,14 @@ local calls={}
 local plugin={ui={},dav_adapter={},dav_profile={},
     isCurrentBookSupported=function()return true end,hasRestorePoint=function()return true end}
 for _,method in ipairs({'onCloudLibrary','onUploadBook','onQueryCloudProgress','onUploadCloudProgress',
-    'onDownloadCloudProgress','onUndoRestore','onExportProgress','onImportProgress'})do
+    'onDownloadCloudProgress','onUndoRestore'})do
     local name=method
     plugin[name]=function()calls[name]=(calls[name]or 0)+1 end
 end
 local page=Home:extend{plugin=plugin,page=1,perpage=6}
 page:init();page:refresh()
 local function select(index)page:onMenuSelect(page.item_table[index])end
-assert(#page.item_table==5)
+assert(#page.item_table==4)
 select(1);assert(calls.onCloudLibrary==1)
 select(2);assert(calls.onUploadBook==1)
 select(3);assert(page.section=='progress' and #page.item_table==5)
@@ -31,9 +31,7 @@ select(2);select(3);select(4);select(5)
 assert(calls.onQueryCloudProgress==1 and calls.onUploadCloudProgress==1)
 assert(calls.onDownloadCloudProgress==1 and calls.onUndoRestore==1)
 page:onClose();assert(not page.section and not page.closed)
-select(4);assert(page.section=='local_backup' and #page.item_table==3)
-select(2);select(3);assert(calls.onExportProgress==1 and calls.onImportProgress==1)
-select(1);select(5);assert(page.section=='settings' and #page.item_table==3)
+select(4);assert(page.section=='settings' and #page.item_table==3)
 assert(page.item_table[2].select_enabled and page.item_table[3].select_enabled)
 plugin.dav_adapter=nil;page:refresh()
 assert(page.item_table[2].select_enabled and not page.item_table[3].select_enabled)

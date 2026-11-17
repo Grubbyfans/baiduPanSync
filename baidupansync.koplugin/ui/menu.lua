@@ -1,4 +1,4 @@
--- Manual cloud operations, local JSON exchange and backend configuration.
+-- Manual cloud operations and backend configuration.
 
 
 local _ = require("gettext")
@@ -20,16 +20,6 @@ function Menu.actions(plugin)
             { text = _("云端书库 / 下载书籍"), callback = function() plugin:onCloudLibrary() end },
 
             {
-                text = _("本地导出阅读进度 JSON"),
-                enabled_func = function() return plugin:isCurrentBookSupported() end,
-                callback = function() plugin:onExportProgress() end,
-            },
-            {
-                text = _("本地导入阅读进度 JSON"),
-                callback = function() plugin:onImportProgress() end,
-                enabled_func = function() return plugin:isCurrentBookSupported() end,
-            },
-            {
                 text = _("撤销上次进度恢复"),
                 callback = function() plugin:onUndoRestore() end,
                 enabled_func = function() return plugin:hasRestorePoint() end,
@@ -44,10 +34,10 @@ function Menu.actions(plugin)
             },
     }
     local ids={'upload_progress','query_progress','download_progress','upload_book','library',
-        'export_progress','import_progress','undo','configure','probe'}
+        'undo','configure','probe'}
     for i,item in ipairs(actions) do
         item.id=ids[i]
-        item.requires_cloud=i<=5 or i==10
+        item.requires_cloud=i<=5 or i==8
     end
     return actions
 end

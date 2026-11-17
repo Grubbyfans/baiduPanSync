@@ -67,20 +67,95 @@ function M.confirm(info,done)
     dialog=Buttons:new{title=table.concat(lines,'\n\n'),buttons=buttons,dismissable=false,rows_per_page=4}
     UI:show(dialog)
 end
-function M.library(result,on_download,page,on_show,on_close)
-    page=page or 1
+-- Filtering and sorting operate on a copy; download callbacks retain the exact
+-- published entry (including its version snapshot).
+function M.library_entries(result,state)
+    local entries={}
+    local query=(state.query or ''):lower()
+    for _,entry in ipairs(result.entries) do
+        local record=entry.record
+        if query=='' or Meta.filename(record):lower():find(query,1,true)
+            or (record.title or ''):lower():find(query,1,true) then
+            entries[#entries+1]=entry
+        end
+    end
+    table.sort(entries,function(a,b)
+        if state.order=='size' and a.record.size~=b.record.size then return a.record.size>b.record.size end
+        local an,bn=Meta.filename(a.record):lower(),Meta.filename(b.record):lower()
+        if an~=bn then return an<bn end
+        return a.record.bookId<b.record.bookId
+    end)
+    return entries
+end
+function M.library(result,on_download,page,on_show,on_close,state)
+    state=state or {query='',order='name'}
+    local entries=M.library_entries(result,state)
+    local perpage=6
+    local pages=math.max(1,math.ceil(#entries/perpage))
+    page=math.max(1,math.min(page or 1,pages))
     local dialog,buttons=nil,{}
-    for i=(page-1)*8+1,math.min(page*8,#result.entries) do
-        local entry=result.entries[i]
-        buttons[#buttons+1]={{text=string.format('%s\n%.2f MiB · %s…',Meta.filename(entry.record),entry.record.size/1048576,entry.record.bookId:sub(1,12)),
+    local function redraw(nextpage)
+        UI:close(dialog)
+        return M.library(result,on_download,nextpage,on_show,on_close,state)
+    end
+    local function search()
+        local input
+        local function apply(query)
+            state.query=query
+            UI:close(input)
+            redraw(1)
+        end
+        input=Input:new{title=_('搜索云端书库'),input=state.query or '',
+            input_hint=_('输入书名或文件名'),buttons={{
+                {text=_('取消'),callback=function()UI:close(input)end},
+                {text=_('清除搜索'),callback=function()apply('')end},
+                {text=_('搜索'),callback=function()apply(input:getInputText())end},
+            }}}
+        UI:show(input);input:onShowKeyboard()
+    end
+    buttons[#buttons+1]={
+        {text=_('搜索书籍'),callback=search},
+        {text=state.order=='size' and _('排序：大小 ↓') or _('排序：书名'),callback=function()
+            state.order=state.order=='size' and 'name' or 'size';redraw(1)
+        end},
+    }
+    local names={}
+    for _,entry in ipairs(entries) do
+        local name=Meta.filename(entry.record)
+        names[name]=(names[name] or 0)+1
+    end
+    for i=(page-1)*perpage+1,math.min(page*perpage,#entries) do
+        local entry=entries[i]
+        local name=Meta.filename(entry.record)
+        local detail=string.format('EPUB · %.2f MiB',entry.record.size/1048576)
+        if names[name]>1 then detail=detail..' · 版本 '..entry.record.bookId:sub(1,8) end
+        buttons[#buttons+1]={{text=name:gsub('%.[Ee][Pp][Uu][Bb]$','')..'\n'..detail,
             callback=function()on_download(entry)end}}
     end
-    local pages={}
-    if page>1 then pages[#pages+1]={text=_('上一页'),callback=function()UI:close(dialog);M.library(result,on_download,page-1,on_show,on_close)end} end
-    if page*8<#result.entries then pages[#pages+1]={text=_('下一页'),callback=function()UI:close(dialog);M.library(result,on_download,page+1,on_show,on_close)end} end
-    if #pages>0 then buttons[#buttons+1]=pages end
-    buttons[#buttons+1]={{text=_('返回插件主页'),callback=function()UI:close(dialog)end}}
-    dialog=Buttons:new{title=string.format('云端书库 · %d 本 · 第 %d 页\n%s\n未完成/损坏记录：%d',#result.entries,page,result.backend,#result.issues),buttons=buttons}
+    if pages>1 then
+        buttons[#buttons+1]={
+            {text=_('上一页'),enabled=page>1,callback=function()if page>1 then redraw(page-1)end end},
+            {text=_('下一页'),enabled=page<pages,callback=function()if page<pages then redraw(page+1)end end},
+        }
+    end
+    buttons[#buttons+1]={
+        {text=_('书库信息'),callback=function()
+            local lines={'服务：'..result.backend,'已发布书籍：'..#result.entries,
+                '未完成 / 损坏记录：'..#result.issues}
+            for _,issue in ipairs(result.issues) do
+                lines[#lines+1]=issue.path or '未知位置'
+            end
+            Dialog.info(table.concat(lines,'\n'))
+        end},
+        {text=_('返回插件主页'),callback=function()UI:close(dialog)end},
+    }
+    local title=string.format('云端书库 · %d 本 · %d / %d 页',#entries,page,pages)
+    if state.query~='' and state.query~=nil then title=title..'\n搜索：'..state.query end
+    if #entries==0 then
+        title=title..(#result.entries==0 and '\n书库为空，请在阅读设备上传 EPUB。' or '\n未找到匹配书籍，请更换关键词或清除搜索。')
+    else title=title..'\n点击书名下载；下载后保留当前列表。' end
+    if #result.issues>0 then title=title..'\n有 '..#result.issues..' 条异常记录，详见书库信息。' end
+    dialog=Buttons:new{title=title,buttons=buttons}
     local closed=dialog.onCloseWidget
     dialog.onCloseWidget=function(self)
         if closed then closed(self) end

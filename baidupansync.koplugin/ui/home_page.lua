@@ -6,8 +6,6 @@ local Home=Menu:extend{is_borderless=true,items_per_page=6}
 local sections={
     progress={title=_('阅读进度'),hint=_('先查看云端进度，再选择上传或应用；应用后可撤销。'),
         actions={'query_progress','upload_progress','download_progress','undo'}},
-    local_backup={title=_('本地进度备份'),hint=_('导出或导入本机 JSON 文件，用于手动备份和交换。'),
-        actions={'export_progress','import_progress'}},
     settings={title=_('连接设置'),hint=_('配置 WebDAV 服务，或检查连接是否正常。'),
         actions={'configure','probe'}},
 }
@@ -19,7 +17,7 @@ end
 
 function Home:items()
     local plugin=self.plugin
-    local busy=plugin.dav_busy or plugin.undo_busy or (plugin.engine and plugin.engine._active)
+    local busy=plugin.dav_busy or plugin.undo_busy
     local actions={}
     for _,item in ipairs(Actions.actions(plugin)) do
         local enabled=not busy and (not item.enabled_func or item.enabled_func())
@@ -41,12 +39,12 @@ function Home:items()
         for _,id in ipairs(section.actions) do items[#items+1]=actions[id] end
     else
         items={actions.library,actions.upload_book}
-        for _,id in ipairs({'progress','local_backup','settings'}) do
+        for _,id in ipairs({'progress','settings'}) do
             local target=id
             items[#items+1]={id=id,text=sections[id].title..' ›',select_enabled=true,
                 callback=function()self:openSection(target)end}
         end
-        if not plugin.dav_adapter then items[5].text=_('连接设置 · 请先配置 ›') end
+        if not plugin.dav_adapter then items[4].text=_('连接设置 · 请先配置 ›') end
     end
     return items
 end
