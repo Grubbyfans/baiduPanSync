@@ -1,6 +1,37 @@
 -- Independent TLS socket factory: peer-chain verification plus SAN-only identity.
 -- Never uses KOReader's CN-first ssl.checkhostname or verify=none defaults.
 local M={}
+local lfs=require('libs/libkoreader-lfs')
+local source=debug and debug.getinfo and debug.getinfo(1,'S').source or ''
+local module_path=source:gsub('^@',''):gsub('\\','/')
+local plugin_root=module_path:match('^(.*)/modules/dav_tls%.lua$')
+if module_path=='modules/dav_tls.lua' then plugin_root='.' end
+local function readable(path)
+    if type(path)~='string' or path=='' or path:find('%z') then return false end
+    if lfs.attributes(path,'mode')~='file' then return false end
+    local f=io.open(path,'rb')
+    if not f then return false end
+    local first=f:read(1);f:close()
+    return first~=nil
+end
+function M.ca_file(explicit,ssl)
+    if explicit~=nil and explicit~='' then
+        if readable(explicit) then return explicit end
+        return nil,'指定的 CA 文件不存在、为空或不可读，请修正路径或留空自动查找'
+    end
+    if ssl and type(ssl.get_system_ca)=='function' then
+        local ok,path=pcall(ssl.get_system_ca)
+        if ok and readable(path) then return path end
+    end
+    -- KOReader's bundled CA path, plus the legacy Turbo installation path.
+    local paths={'data/ca-bundle.crt','common/turbo/ca-certificates.crt'}
+    if plugin_root then paths[#paths+1]=plugin_root..'/resources/ca-bundle.crt' end
+    for _,path in ipairs({os.getenv('SSL_CERT_FILE') or '',
+        '/etc/ssl/certs/ca-certificates.crt','/etc/pki/tls/certs/ca-bundle.crt',
+        '/etc/ssl/ca-bundle.pem','/etc/ssl/cert.pem'}) do paths[#paths+1]=path end
+    for _,path in ipairs(paths) do if readable(path) then return path end end
+    return nil,'没有可用的可信 CA 文件；请完整安装插件 resources/ca-bundle.crt，或在应用配置中填写 CA 文件路径'
+end
 local function ip_bytes(value)
     local ffi=require('ffi')
     pcall(ffi.cdef,'int inet_pton(int af, const char *src, void *dst);')
@@ -38,11 +69,11 @@ function M.matches(cert,host)
     return false
 end
 function M.factory(cafile)
-    local ssl=require('ssl')
-    cafile=cafile or (ssl.get_system_ca and ssl.get_system_ca())
-    if type(cafile)~='string' or require('libs/libkoreader-lfs').attributes(cafile,'mode')~='file' then
-        return nil,'没有可用的可信 CA 文件'
-    end
+    local loaded,ssl=pcall(require,'ssl')
+    if not loaded then return nil,'KOReader 缺少可用的 LuaSec TLS 模块，请检查安装' end
+    local reason
+    cafile,reason=M.ca_file(cafile,ssl)
+    if not cafile then return nil,reason end
     local socket=require('socket')
     local state={code='NETWORK'}
     local function create()

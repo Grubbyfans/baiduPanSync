@@ -4,7 +4,7 @@
 
 - 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.7，开发基线）
 - 文档分析：[分析结果.md](分析结果.md)
-- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.7.1：WebDAV 进度同步、当前 EPUB 上传、书库下载）
+- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.7.2：WebDAV 进度同步、当前 EPUB 上传、书库下载）
 - 安装/使用/测试说明：[baidupansync.koplugin/README.md](baidupansync.koplugin/README.md)
 - 阶段 A 验收记录：[阶段A验收记录.md](阶段A验收记录.md)（已通过）
 - 阶段 B 验收记录：[阶段B验收记录.md](阶段B验收记录.md)
@@ -24,6 +24,8 @@ KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
 ## 本地 WebDAV 测试服务
 
 已提供零依赖 Node.js 服务：[serve/README.md](serve/README.md)。修改 `serve/config.json` 的端口、账户和存储目录后，运行 `node serve/server.js`，可测试插件的 C1 上传下载及条件写入。
+
+0.7.2 修复部分 KOReader 版本找不到可信 CA 的问题，兼容自带证书路径并附带 Mozilla CA 后备包，保留证书链与主机名校验。
 
 0.7.1 支持手机扫码填写百度应用配置，保存后直接继续授权；已有 SecretKey 不回显，首次使用无需在阅读器输入长密钥。
 
