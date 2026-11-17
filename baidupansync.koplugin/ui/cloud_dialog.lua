@@ -36,10 +36,12 @@ function M.confirm(info,done)
     local buttons,dialog={},nil
     local lines={'后端：'..info.backend,'文件：'..info.filename}
     if info.kind=='download_book' then
-        lines[#lines+1]='发现本地同名文件，请查看摘要结果后选择。覆盖不同内容会备份旧 EPUB 及已有阅读设置；启用 KOReader 哈希元数据存储时，覆盖后需重启再打开。'
-        for _,candidate in ipairs(info.candidates) do
+        lines[#lines+1]='发现本地同名文件，请查看下方完整位置后选择覆盖、重命名或取消。任务会等待你的选择。覆盖不同内容会备份旧 EPUB 及已有阅读设置；启用 KOReader 哈希元数据存储时，覆盖后需重启再打开。'
+        for i,candidate in ipairs(info.candidates) do
             local selected=candidate
-            buttons[#buttons+1]={{text='覆盖：'..selected.path..'\n'..(selected.same and 'bookId 相同（内容一致）' or 'bookId 不同（内容不同）'),callback=function()
+            lines[#lines+1]=string.format('同名书籍 %d：\n%s\n%s',i,selected.path,
+                selected.same and 'bookId 相同（内容一致）' or 'bookId 不同（内容不同）')
+            buttons[#buttons+1]={{text=string.format('覆盖同名书籍 %d',i),callback=function()
                 UI:close(dialog);done{mode='overwrite',path=selected.path}
             end}}
         end

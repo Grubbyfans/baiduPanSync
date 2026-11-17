@@ -201,11 +201,16 @@ end
 
 function Dialog.start_scan_progress()
     local cancelled=false
+    local closed=false
     local dialog=ProgressbarDialog:new{title=_("检查根目录及子目录的同名书籍"),
         subtitle=_("点击可取消；仅计算同名文件的完整摘要"),dismiss_text=_("取消同名检查？"),
-        dismiss_callback=function()cancelled=true end}
+        dismiss_callback=function()if not closed then cancelled=true end end}
     dialog:show()
-    return {is_cancelled=function()return cancelled end,close=function()dialog:close()end}
+    return {is_cancelled=function()return cancelled end,close=function()
+        if closed then return end
+        closed=true
+        dialog:close()
+    end}
 end
 
 return Dialog
