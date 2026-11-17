@@ -10,6 +10,17 @@ local ffi=require('ffi')
 pcall(ffi.cdef,'int chmod(const char *path, unsigned int mode);')
 local M={};M.__index=M
 function M:new(o)return setmetatable({dir=o.dir,file=o.dir..'/baidu_credentials.json'},self)end
+function M.prepare(old,fields)
+    old=old or {}
+    local p={app_key=fields.app_key,secret_key=fields.secret_key,
+        app_dir=require('modules/baidu_api').root(fields.app_dir),listen_ip=fields.listen_ip,cafile=fields.cafile}
+    if p.secret_key=='' and old.app_key==p.app_key then p.secret_key=old.secret_key end
+    if old.app_key==p.app_key and require('modules/baidu_api').root(old.app_dir)==p.app_dir then
+        for _,key in ipairs({'access_token','refresh_token','obtained_at','expires_at','scope',
+            'user_id','account_name','backend_id','last_probe'}) do p[key]=old[key] end
+    end
+    return p
+end
 function M.valid(p)
     if not (type(p)=='table' and type(p.app_key)=='string' and #p.app_key>0 and #p.app_key<=256
         and not p.app_key:find('[^%w_%-]') and type(p.secret_key)=='string' and #p.secret_key>0

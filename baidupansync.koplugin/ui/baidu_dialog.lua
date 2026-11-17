@@ -22,12 +22,8 @@ function M.configure(plugin)
             if busy(plugin) then return Dialog.info('请先完成或取消当前任务。') end
             local v=input:getFields()
             if v[4]~='' and not require('modules/baidu_auth_server').private_ip(v[4]) then return Dialog.info('请输入阅读器的局域网 IPv4 地址。') end
-            local record={app_key=v[1],secret_key=v[2],app_dir=v[3],listen_ip=v[4]~='' and v[4] or nil,
-                cafile=v[5]~='' and v[5] or nil}
-            if p.app_key==record.app_key and p.app_dir==record.app_dir then
-                for _,key in ipairs({'access_token','refresh_token','obtained_at','expires_at','scope',
-                    'user_id','account_name','backend_id','last_probe'}) do record[key]=p[key] end
-            end
+            local record=require('modules/baidu_store').prepare(p,{app_key=v[1],secret_key=v[2],app_dir=v[3],
+                listen_ip=v[4]~='' and v[4] or nil,cafile=v[5]~='' and v[5] or nil})
             local ok,err=plugin.baidu_store:save(record)
             if not ok then return Dialog.error(err) end
             UI:close(input);plugin:refreshHome();Dialog.info('百度应用配置已保存。现在可开始扫码授权。')
@@ -35,13 +31,16 @@ function M.configure(plugin)
     }}}
     UI:show(input);input:onShowKeyboard()
 end
-function M.authorize(plugin)
+function M.authorize(plugin,phone_setup)
     if busy(plugin) then return Dialog.info('请先完成或取消当前任务。') end
     local p,e=plugin.baidu_store:load()
     if e then return Dialog.error(e) end
-    if not p then return M.configure(plugin) end
-    local factory,reason=require('modules/dav_tls').factory(p.cafile)
-    if not factory then return Dialog.error(E.new('TLS',reason)) end
+    phone_setup=phone_setup or not p
+    p=p or {}
+    if not phone_setup then
+        local factory,reason=require('modules/dav_tls').factory(p.cafile)
+        if not factory then return Dialog.error(E.new('TLS',reason)) end
+    end
     if plugin.baidu_session then plugin.baidu_session:stop('replaced') end
     local server,auth,page
     local function finish(err)
@@ -57,9 +56,27 @@ function M.authorize(plugin)
         if not auth then return done(E.new('CONFLICT','授权会话未就绪')) end
         auth:submit(code,function(err)done(err);finish(err)end)
     end
+    local function make_auth()
+        auth=require('modules/baidu_auth'):new{profile=p,store=plugin.baidu_store,
+            deadline=os.time()+math.max(0,math.floor(server.deadline-server.now())),
+            is_active=function()return not server.closed end}
+    end
+    local function configure(fields)
+        local record=require('modules/baidu_store').prepare(p,{app_key=fields.app_key,secret_key=fields.secret_key,
+            app_dir=fields.app_dir,listen_ip=p.listen_ip,cafile=p.cafile})
+        local ok,err=plugin.baidu_store:save(record)
+        if not ok then return nil,err end
+        p=record
+        local factory,reason=require('modules/dav_tls').factory(p.cafile)
+        if not factory then return nil,E.new('TLS',reason..'；配置已保存，请在阅读器检查 CA 后重新开始') end
+        make_auth()
+        return require('modules/baidu_auth').authorization_url(p.app_key,server.oauth_state)
+    end
     local start_error
     server,start_error=require('modules/baidu_auth_server').start{ip=p.listen_ip,app_key=p.app_key,
         schedule=function(delay,cb)UI:scheduleIn(delay,cb)end,unschedule=function(cb)UI:unschedule(cb)end,
+        on_config=phone_setup and configure or nil,
+        public_profile={app_key=p.app_key,app_dir=p.app_dir,has_secret=p.secret_key~=nil},
         on_code=submit,on_tick=function(seconds,state)if page then page:update(seconds,state)end end,
         on_stop=function(reason_code)
             if auth and auth.state~='success' and auth.state~='failed' then auth:cancel() end
@@ -73,15 +90,14 @@ function M.authorize(plugin)
             end
         end}
     if not server then return Dialog.error(start_error) end
-    auth=require('modules/baidu_auth'):new{profile=p,store=plugin.baidu_store,
-        deadline=os.time()+600,is_active=function()return not server.closed end}
+    if not phone_setup then make_auth() end
     local ok,created=pcall(function()return require('ui/baidu_auth_dialog'):new{session=server,on_cancel=function(reason_code)
-        auth:cancel();server:stop(reason_code or 'cancelled')
+        if auth then auth:cancel() end;server:stop(reason_code or 'cancelled')
     end,on_code=function(code)
         if server.state~='waiting' then return Dialog.info('授权码已提交，请等待结果。') end
         server.state='exchanging';submit(code,function(err)server:finish(err)end)
     end}end)
-    if not ok then auth:cancel();server:stop('failed');return Dialog.error(E.new('IO','无法显示授权二维码，请检查 KOReader 版本')) end
+    if not ok then if auth then auth:cancel() end;server:stop('failed');return Dialog.error(E.new('IO','无法显示授权二维码，请检查 KOReader 版本')) end
     page=created
     plugin.baidu_session=server;plugin.baidu_busy=true;plugin.baidu_task='auth'
     UI:show(page);plugin:refreshHome()
@@ -113,8 +129,9 @@ function M.show(plugin)
     local function run(fn)UI:close(dialog);fn(plugin)end
     dialog=Buttons:new{title='百度网盘 · C2 接入验证\n'..status..'\n当前后端：'..
         (plugin.active_backend=='baidu' and '百度（C2，仅授权与测试）' or 'WebDAV'),buttons={
-        {{text='应用配置',callback=function()run(M.configure)end}},
-        {{text='开始扫码授权 / 重新授权',callback=function()run(M.authorize)end}},
+        {{text='手机扫码配置与授权',callback=function()UI:close(dialog);M.authorize(plugin,true)end}},
+        {{text='在阅读器配置应用',callback=function()run(M.configure)end}},
+        {{text='使用现有配置授权 / 重新授权',callback=function()run(M.authorize)end}},
         {{text='验证测试文件上传与下载',callback=function()run(M.probe)end}},
         {{text='返回连接设置',callback=function()UI:close(dialog)end}},
     }}

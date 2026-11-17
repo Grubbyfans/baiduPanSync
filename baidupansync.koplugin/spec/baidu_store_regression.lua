@@ -12,6 +12,10 @@ package.loaded['modules/random']={hex=function(n)return string.rep('a',n*2)end}
 local Store=require('modules/baidu_store')
 local store=Store:new{dir=fixture_temp_dir}
 local p={app_key='app',secret_key='fixture-secret',app_dir='/apps/测试'}
+local merged=Store.prepare(p,{app_key='app',secret_key='',app_dir='/apps/测试/'})
+assert(merged.secret_key=='fixture-secret' and merged.app_dir=='/apps/测试')
+local changed=Store.prepare(p,{app_key='different-app',secret_key='',app_dir='/apps/测试'})
+assert(not Store.valid(changed),'a new AppKey must not reuse the old app secret')
 assert(not store:load())
 assert(store:save(p));assert(store:load().secret_key=='fixture-secret')
 assert(modes[448] and modes[384],'private directory and file permissions must be requested')

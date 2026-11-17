@@ -105,6 +105,13 @@ local qr=QRPage:new{session={url='http://192.168.1.2:1234/authorize/fixture'},
 qr:update(599,'waiting');assert(qr.status.text:find('9:59',1,true))
 qr:manual();shown.input='fixture-code';shown.buttons[1][2].callback();assert(code=='fixture-code')
 qr:close();qr:close();assert(cancelled==1)
+local setup=QRPage:new{session={url='http://192.168.1.2:1234/authorize/fixture',state='configuring'},
+    on_cancel=function()end,on_code=function()error('configuration must precede manual code entry')end}
+setup:update(590,'configuring');assert(setup.status.text:find('填写资料',1,true))
+setup:manual()
+setup.session.state='waiting';setup:update(580,'waiting')
+assert(setup.mode=='waiting' and setup.status.text:find('等待手机提交',1,true))
+setup:close()
 print('Baidu QR page countdown, manual fallback and close lifecycle regressions passed')
 local BaiduUI=require('ui/baidu_dialog')
 local state={data={activeBackendType='webdav',activeBackendId='dav-id'}}

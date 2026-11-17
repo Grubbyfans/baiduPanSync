@@ -73,7 +73,10 @@ package.loaded['modules/baidu_auth']={authorization_url=function()return 'https:
 fixture_now=1000;fixture_submissions=0
 receiver=assert(require('modules/baidu_auth_server').start{
     ip=fixture_ip,app_key='fixture',socket={tcp=fixture_tcp,gettime=function()return fixture_now end},
-    random=function(n)return string.rep('b',n*2)end,on_code=function(code,done)
+    random=function(n)return string.rep('b',n*2)end,on_config=function(fields)
+        assert(fields.app_key=='fixture-app' and fields.secret_key=='fixture-secret')
+        fixture_configured=true;return 'https://openapi.baidu.com/fixture'
+    end,on_code=function(code,done)
         assert(code=='fixture-code');fixture_submissions=fixture_submissions+1;done(nil)
     end})
 """)
@@ -95,9 +98,15 @@ def phone():
             finally:
                 conn.close()
         status, body, headers = request('GET', path)
-        assert status == 200 and '前往百度授权'.encode() in body
+        assert status == 200 and '保存并继续授权'.encode() in body
+        assert b'fixture-secret' not in body
         assert dict(headers)['Cache-Control'] == 'no-store'
         assert request('GET', '/wrong')[0] == 404
+        config = f'app_key=fixture-app&secret_key=fixture-secret&app_dir=%2Fapps%2Ffixture&csrf={csrf}'
+        assert request('POST', path + '/config', config,
+                       {'Content-Type': 'application/x-www-form-urlencoded'})[0] == 200
+        status, body, _ = request('GET', path)
+        assert status == 200 and '前往百度授权'.encode() in body and b'fixture-secret' not in body
         assert request('POST', path, 'code=fixture-code&csrf=bad',
                        {'Content-Type': 'application/x-www-form-urlencoded'})[0] == 400
         status, _, _ = request('POST', path, f'code=fixture-code&csrf={csrf}',
@@ -121,7 +130,7 @@ try:
     worker.join(timeout=0.1)
     if failures:
         raise failures[0]
-    assert results and lua.globals()[b'fixture_submissions'] == 1
+    assert results and lua.globals()[b'fixture_submissions'] == 1 and lua.globals()[b'fixture_configured']
     lua.globals()[b'fixture_now'] = 1006
     receiver[b'poll_once'](receiver)
     assert receiver[b'closed']
@@ -131,7 +140,7 @@ try:
         assert probe.connect_ex((address, port)) != 0
     finally:
         probe.close()
-    print('Real LAN sockets: mobile page, code submit, status, replay and listener shutdown passed')
+    print('Real LAN sockets: mobile app setup, code submit, status, replay and listener shutdown passed')
 finally:
     receiver[b'stop'](receiver, b'test_cleanup')
     for sock in opened:

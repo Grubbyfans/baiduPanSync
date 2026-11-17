@@ -15,17 +15,21 @@ local UI=require('ui/uimanager')
 local BB=require('ffi/blitbuffer')
 local Page=InputContainer:extend{covers_fullscreen=true}
 function Page:init()
+    self.mode=self.session.state
     local w,h=Screen:getWidth(),Screen:getHeight()
     self.dimen=Geom:new{x=0,y=0,w=w,h=h}
     self.key_events={Close={{'Back'}}}
     local function close()self:close()end
     local title=Title:new{width=w,title='百度网盘授权',close_callback=close}
-    self.status=Text:new{text='等待手机提交 · 有效期 10 分钟',width=w-40,alignment='center',face=Font:getFace('cfont',18)}
-    local help=Text:new{text='手机与阅读器连接同一 Wi-Fi\n扫码 → 前往百度授权 → 复制授权码 → 返回手机页面提交',
+    self.status=Text:new{text=self.mode=='configuring' and '等待手机填写应用资料 · 有效期 10 分钟'
+        or '等待手机提交 · 有效期 10 分钟',width=w-40,alignment='center',face=Font:getFace('cfont',18)}
+    local help=Text:new{text=self.mode=='configuring' and
+        '手机与阅读器连接同一可信 Wi-Fi\n扫码 → 填写应用资料 → 保存 → 完成百度授权'
+        or '手机与阅读器连接同一 Wi-Fi\n扫码 → 前往百度授权 → 复制授权码 → 返回手机页面提交',
         width=w-40,alignment='center',face=Font:getFace('cfont',18)}
     local address=Text:new{text=self.session.url,width=w-40,alignment='center',face=Font:getFace('cfont',14)}
     local buttons=ButtonTable:new{width=w,buttons={
-        {{text='在阅读器输入授权码',callback=function()self:manual()end}},
+        {{text='在阅读器输入授权码',enabled=self.mode~='configuring',callback=function()self:manual()end}},
         {{text='取消授权',callback=close}},
     }}
     local fixed=title:getSize().h+help:getSize().h+self.status:getSize().h+address:getSize().h+buttons:getSize().h+72
@@ -40,11 +44,16 @@ function Page:init()
 end
 function Page:update(seconds,state)
     if self.closed then return end
-    local text=state=='waiting' and string.format('等待手机提交 · 剩余 %d:%02d',math.floor(seconds/60),seconds%60)
+    if self.mode=='configuring' and state~='configuring' then
+        self[1]:free();self[1]=nil;self:init();self.last_text=nil
+    end
+    local text=(state=='waiting' or state=='configuring') and string.format(
+        state=='configuring' and '等待手机填写资料 · 剩余 %d:%02d' or '等待手机提交 · 剩余 %d:%02d',math.floor(seconds/60),seconds%60)
         or '正在校验授权并保存凭据…'
     if text~=self.last_text then self.last_text=text;self.status:setText(text);UI:setDirty(self,'ui') end
 end
 function Page:manual()
+    if self.session.state=='configuring' then return end
     local input
     input=Input:new{title='输入百度授权码',input='',buttons={{
         {text='取消',callback=function()UI:close(input)end},

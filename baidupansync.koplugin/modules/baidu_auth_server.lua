@@ -51,8 +51,8 @@ function M.start(o)
     local now=o.now or socket.gettime
     local self=setmetatable({listener=listener,clients={},ip=ip,authority=ip..':'..port,
         path='/authorize/'..token,csrf=csrf,oauth_state=state,now=now,deadline=now()+600,
-        on_code=o.on_code,on_stop=o.on_stop,on_tick=o.on_tick,schedule=o.schedule,unschedule=o.unschedule,
-        state='waiting',message='等待手机提交授权码',ip_check=o.ip_check},M)
+        on_code=o.on_code,on_config=o.on_config,on_stop=o.on_stop,on_tick=o.on_tick,schedule=o.schedule,unschedule=o.unschedule,
+        state=o.on_config and 'configuring' or 'waiting',message='等待手机提交授权码',ip_check=o.ip_check},M)
     if not self.ip_check and socket.udp then
         self.ip_check=function(address)
             local s=socket.udp();if not s then return false end
@@ -63,7 +63,10 @@ function M.start(o)
         end
     end
     self.url='http://'..self.authority..self.path
-    self.html=Page.render(require('modules/baidu_auth').authorization_url(o.app_key,state),self.path,csrf)
+    if o.on_config then
+        self.message='等待手机填写应用资料'
+        self.html=Page.configure(self.path,csrf,o.public_profile)
+    else self.html=Page.render(require('modules/baidu_auth').authorization_url(o.app_key,state),self.path,csrf) end
     -- Network requests fork through KOReader Trapper. The child must not keep
     -- the parent's LAN listener alive after the UI cancels or expires it.
     local has_util,util=pcall(require,'ffi/util')
@@ -85,7 +88,7 @@ function M:stop(reason)
     if self.unschedule then self.unschedule(self.poll) end
     self.listener:close()
     for _,c in ipairs(self.clients) do c.socket:close();c.input=nil;c.output=nil end
-    self.clients={};self.csrf=nil;self.html=nil;self.oauth_state=nil
+    self.clients={};self.csrf=nil;self.html=nil;self.oauth_state=nil;self.on_config=nil
     if self.on_stop then self.on_stop(reason or 'cancelled') end
 end
 function M:finish(e)
@@ -97,6 +100,22 @@ end
 function M:handle(method,path,headers,body)
     if headers.host~=self.authority then return 403,'请求目标不匹配' end
     if headers.origin and headers.origin~='http://'..self.authority then return 403,'拒绝其他站点提交' end
+    if path==self.path..'/config' then
+        if method~='POST' then return 405,'配置资料只允许 POST 提交' end
+        if self.state~='configuring' or not self.on_config then return 409,'应用配置已提交，请继续授权' end
+        if not (headers['content-type'] or ''):match('^application/x%-www%-form%-urlencoded') then return 415,'提交格式无效' end
+        local form=M.form(body)
+        if not form or form.csrf~=self.csrf or type(form.app_key)~='string' or #form.app_key>256
+            or type(form.secret_key)~='string' or #form.secret_key>512
+            or type(form.app_dir)~='string' or #form.app_dir>1024 then return 400,'应用资料或会话凭证无效' end
+        local ok,url,err=pcall(self.on_config,{app_key=form.app_key,secret_key=form.secret_key,app_dir=form.app_dir})
+        form.secret_key=nil
+        if not ok then return 500,'保存应用配置失败，请在阅读器检查后重新开始' end
+        if not url then return 400,err and err.message or '应用配置无效' end
+        self.html=Page.render(url,self.path,self.csrf);self.state='waiting';self.message='等待手机提交授权码'
+        self.on_config=nil
+        return 200,'应用配置已保存，请刷新页面继续授权。'
+    end
     if path==self.path..'/status' and method=='GET' then
         return 200,self.state=='exchanging' and '正在校验并保存，请稍候…' or self.message
     end
