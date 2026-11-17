@@ -40,14 +40,17 @@ function Dialog.error(err, extra)
     end
     UIManager:show(InfoMessage:new{
         text = message,
-        timeout = 10,
+        flush_events_on_show = true,
+        honor_silent_mode = false,
     })
 end
 
-function Dialog.info(text)
+function Dialog.info(text, persistent)
     UIManager:show(InfoMessage:new{
         text = text,
-        timeout = 8,
+        timeout = not persistent and 8 or nil,
+        flush_events_on_show = persistent == true,
+        honor_silent_mode = not persistent,
     })
 end
 

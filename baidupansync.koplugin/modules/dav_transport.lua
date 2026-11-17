@@ -148,7 +148,7 @@ function M.request(req,done)
                 req.progress_path=marker
                 local total=req.upload_size or req.max_bytes
                 dialog=require('ui/widget/progressbardialog'):new{
-                    title=req.upload_path and '正在上传 EPUB' or '正在下载 EPUB',
+                    title=req.progress_title or (req.upload_path and '正在上传 EPUB' or '正在下载 EPUB'),
                     subtitle='点击可取消；写入取消后请重新查询云端状态',progress_max=total>0 and total or nil,
                     refresh_time_seconds=0.5,
                 }

@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.8.3: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.8.4: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.8.3"
+local VERSION = "0.8.4"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -186,6 +186,10 @@ function BaiduPanSync:_cloud(operation, entry)
         state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader"}
     local cloud_dialog=require("ui/cloud_dialog")
     local opts=self:_hash_opts()
+    local logger=require('logger')
+    logger.info('BaiduPanSync',VERSION,mode,operation,'start',context and context.book.size or 0)
+    opts.on_state=function(state)logger.info('BaiduPanSync',VERSION,mode,operation,'state',state)end
+    opts.on_phase=function(phase)logger.info('BaiduPanSync',VERSION,mode,operation,'phase',phase)end
     opts.guard=function()
         if (self.active_backend or 'webdav')~=mode or (mode=='webdav' and self.dav_adapter~=backend) then
             return nil,require("modules/errors").new("CONFLICT","后端配置已变化")
@@ -219,6 +223,8 @@ function BaiduPanSync:_cloud(operation, entry)
     local function completed(e,result)
         if scan_ui then scan_ui:close() end
         self.dav_busy=false
+        if e then logger.warn('BaiduPanSync',VERSION,mode,operation,'finished',e.code,e.message)
+        else logger.info('BaiduPanSync',VERSION,mode,operation,'finished','success') end
         self:refreshHome()
         if operation=='delete_book' then
             if not e or e.code~='CANCELLED' then
@@ -243,7 +249,7 @@ function BaiduPanSync:_cloud(operation, entry)
                 require("apps/reader/readerui"):showReader(file)
             end)
         elseif operation=="upload_book" then
-            return Dialog.info(result.skipped and "已跳过。" or "书籍已发布并回读确认。阅读进度未自动上传。")
+            return Dialog.info(result.skipped and "已跳过。" or "书籍已发布并回读确认。阅读进度未自动上传。",true)
         elseif operation=="upload" then return Dialog.info(result.unchanged and "云端位置相同，已确认当前基线。" or "阅读进度已上传并回读确认。")
         else return Dialog.info("云端进度已应用并保存基线，可撤销恢复。") end
     end

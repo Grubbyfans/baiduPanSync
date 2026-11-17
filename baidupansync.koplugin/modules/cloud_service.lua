@@ -67,6 +67,9 @@ function M:step(state)
     if self.task.state==state then return end
     A.check(self.task:transition(state))
 end
+function M:phase(name,opts)
+    if opts.on_phase then pcall(opts.on_phase,name) end
+end
 function M:run(kind,opts,fn,done)
     opts=opts or {};done=done or function()end
     if self.active then return done(Errors.new('CONFLICT','已有云端任务，请先完成或取消')) end
@@ -272,13 +275,18 @@ end
 function M:verify_remote_book(identity,path,opts)
     self:step('verifying')
     local stage='准备回读临时文件'
+    self:phase(stage,opts)
     local e=A.await(function(done)A.run(function()
         local temp=self:temporary(self.temp_dir)
         stage='检查回读目录剩余空间'
+        self:phase(stage,opts)
         Local.space(self.temp_dir,identity.size)
         stage='从云端回读 EPUB'
-        A.call(function(cb)self.backend:download(path,temp,opts.on_transfer,cb,{max_bytes=identity.size})end)
+        self:phase(stage,opts)
+        A.call(function(cb)self.backend:download(path,temp,opts.on_transfer,cb,{max_bytes=identity.size,
+            progress_title='正在校验已上传书籍',wait_message='正在回读云端 EPUB 并校验完整内容（点击可取消）…'})end)
         stage='核对整书 SHA-256'
+        self:phase(stage,opts)
         local hashopts={use_cache=false,schedule=opts.schedule,is_cancelled=opts.is_cancelled,
             on_progress=opts.on_progress,on_hash_start=opts.on_hash_start,on_hash_finish=opts.on_hash_finish}
         local actual=Local.identify(self.identity,temp,hashopts)
@@ -365,6 +373,7 @@ function M:upload_book(context,opts,done)
             size=identity.size,path=book_path,uploadedAt=Record.iso_timestamp(self.now()),
             verificationLevel=(existing_book or self.backend.verify_uploaded_content) and 'sha256' or 'size'}
         if o.make_cover then
+            self:phase('提取书籍封面',o)
             local ok,cover=pcall(o.make_cover,context.book.file_path,self:temporary(self.temp_dir))
             if ok and require('modules/book_cover').decode(cover) then metadata.coverPng=cover end
         end
@@ -375,6 +384,7 @@ function M:upload_book(context,opts,done)
         end
         self:guard(context,o)
         local raw=A.check(Meta.encode(metadata))
+        self:phase('发布书库记录',o)
         -- The sidecar becomes visible only after the EPUB has been confirmed.
         local e=A.await(function(cb)self.backend:uploadSmallJson(meta_path,raw,self:condition(own),cb)end)
         if e then fail('UNCERTAIN','EPUB 已提交，但发布记录未确认；重新上传可检查补全：'..e.message,'uncertain') end
@@ -388,6 +398,7 @@ function M:upload_book(context,opts,done)
             if de or self:optional_stat(old_path) then fail('UNCERTAIN','新书已发布，但旧条目未确认撤下；请核对云端书库','uncertain') end
         end
         self:step('committing_local')
+        self:phase('书库发布完成',o)
         return {record=metadata,published=true,previous_content_retained=selected and selected.record.bookId~=identity.book_id}
     end,done)
 end

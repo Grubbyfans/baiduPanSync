@@ -17,6 +17,13 @@ package.loaded.datetime={}
 package.loaded.gettext=function(s)return s end
 package.loaded['modules/book_metadata']={}
 local Dialog=require('ui/progress_dialog')
+Dialog.error({code='UNCERTAIN',message='fixture failure'})
+assert(shown.timeout==nil and shown.flush_events_on_show and shown.honor_silent_mode==false,
+    'task errors must remain visible and bypass silent notifications')
+Dialog.info('published',true)
+assert(shown.timeout==nil and shown.flush_events_on_show and shown.honor_silent_mode==false)
+Dialog.info('ordinary notice')
+assert(shown.timeout==8,'ordinary informational notices retain their timeout')
 local scan=Dialog.start_scan_progress()
 scan:close();scan:close()
 assert(closes==1, 'scan close must be idempotent')

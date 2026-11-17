@@ -248,7 +248,8 @@ function M:download(relative,destination,progress,done,opts)
                 (self.transport or require('modules/dav_transport').request)({url=token_url(url,self.profile.access_token),method='GET',cafile=self.profile.cafile,
                     headers={['User-Agent']='pan.baidu.com'},max_bytes=st.size,
                     download_path=destination,reset_download=destination~=nil,progress_dir=destination and self.progress_dir or nil,
-                    wait_message='正在从百度网盘下载（点击可取消）…'},cb)
+                    progress_title=opts.progress_title,
+                    wait_message=opts.wait_message or '正在从百度网盘下载（点击可取消）…'},cb)
             end)
             if e then error(e,0) end
             if type(r)~='table' or type(r.status)~='number' then fail('NETWORK','百度下载未收到有效传输结果，请检查 KOReader 日志后重试') end

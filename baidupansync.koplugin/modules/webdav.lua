@@ -126,7 +126,8 @@ function M:download(path,destination,progress,done,opts)
     return self:_request('GET',path,nil,nil,function(e,r)
         if not e and progress then pcall(progress,r.size,r.size) end
         done(e,r)
-    end,{download_path=destination,max_bytes=opts and opts.max_bytes or 1024*1024*1024})
+    end,{download_path=destination,max_bytes=opts and opts.max_bytes or 1024*1024*1024,
+        progress_title=opts and opts.progress_title,wait_message=opts and opts.wait_message})
 end
 function M:upload(path,local_file,progress,done,opts)
     opts=opts or {}

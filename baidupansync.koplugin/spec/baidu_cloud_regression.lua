@@ -242,5 +242,24 @@ end})
 assert(not recovered.e,recovered.e and recovered.e.message)
 assert(recovery_remote.uploads==upload_count+1,'recovery must only upload metadata, not the EPUB again')
 assert(#run(recovery,'list',options).value.entries==1)
+-- Recovery must also complete with real UI-style delayed confirmations,
+-- deferred network callbacks, scheduled hashes and GC between every event.
+recovery_remote.files['/apps/recovery/metadata/'..id..'.json']=nil
+local queue={}
+local function later(cb)queue[#queue+1]=cb end
+recovery_api.transport=function(req,cb)later(function()original_transport(req,cb)end)end
+local deferred,count=nil,0
+local phases={}
+recovery:upload_book(context,{schedule=later,on_phase=function(phase)phases[#phases+1]=phase end,confirm=function(info,cb)
+    assert(info.recovery);later(function()cb{mode='overwrite',book_id=id}end)
+end},function(e,v)count=count+1;deferred={e=e,value=v}end)
+local iterations=0
+while #queue>0 do
+    iterations=iterations+1;assert(iterations<1000)
+    collectgarbage('collect');table.remove(queue,1)()
+end
+assert(count==1 and deferred and not deferred.e,deferred and deferred.e and deferred.e.message or 'recovery silently stopped')
+assert(recovery_remote.files['/apps/recovery/metadata/'..id..'.json'])
+assert(table.concat(phases,'/'):find('从云端回读 EPUB',1,true) and phases[#phases]=='书库发布完成')
 print('WebDAV/Baidu confirmed deletion, cancellation, races, partial failures and conditional DELETE regressions passed')
 print('Baidu full book publish/list/download/backup/progress/rename, corruption and backend isolation regressions passed')
