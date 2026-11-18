@@ -84,6 +84,11 @@ local deleted
 grid.on_delete=function(entry)deleted=entry end
 grid:details(grid.visible_entries[1]);shown.buttons[2][1].callback()
 assert(deleted==result.entries[3] and not grid.closed)
+result.entries[3].incomplete=true;selected=nil
+grid:select(result.entries[3])
+assert(selected==nil and shown.buttons[1][1].enabled==false and shown.title:find('EPUB 缺失',1,true))
+shown.buttons[2][1].callback();assert(deleted==result.entries[3])
+result.entries[3].incomplete=nil
 local choice
 Cloud.confirm({kind='delete_book',backend='fixture',record=result.entries[3].record,
     paths={'books/fixture.epub','metadata/fixture.json','progress/fixture.json'},best_effort=true},function(v)choice=v end)

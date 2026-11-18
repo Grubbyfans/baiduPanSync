@@ -5,10 +5,14 @@ local M = {}
 local function writing(req)
     return req.writing or req.method=='PUT' or req.method=='MKCOL' or req.method=='DELETE'
 end
+local function total_timeout(req)
+    return (req.upload_path or req.download_path) and
+        math.min(3600,math.max(300,math.ceil((req.upload_size or req.max_bytes or 0)/32768)+60)) or 120
+end
 function M.perform(req)
     local streaming=req.upload_path or req.download_path
     local block_timeout=streaming and 60 or 15
-    local total_timeout=streaming and math.min(3600,math.max(300,math.ceil((req.upload_size or req.max_bytes or 0)/32768)+60)) or 120
+    local total_timeout=total_timeout(req)
     local secure=req.url:match('^https:')~=nil
     local create,tls_state
     if secure then
@@ -146,14 +150,26 @@ function M.perform(req)
 end
 function M.request(req,done)
     local trapper=require('ui/trapper')
+    local Async=require('modules/async')
+    local scoped=Async.has_scope()
     local handle={cancelled=false}
     local called=false
+    local dialog,marker,poll,wait_widget,unregister,deadline,timed_out
+    local UI=require('ui/uimanager')
     local function finish(e,r)
-        if called then return end;called=true;done(e,r)
+        if called then return end;called=true
+        if unregister then unregister() end
+        if deadline then UI:unschedule(deadline) end
+        done(e,r)
     end
+    handle.cancel=function()
+        if called or handle.cancelled then return end
+        handle.cancelled=true
+        local widget=dialog or wait_widget
+        if widget and widget.dismiss_callback then widget.dismiss_callback() end
+    end
+    unregister=Async.on_cancel(handle.cancel)
     trapper:wrap(function()
-        local dialog,marker,poll
-        local UI=require('ui/uimanager')
         local ok,err=pcall(function()
             if (req.upload_path or req.download_path) and req.progress_dir then
                 local ok=require('modules/file_util').mkdir_p(req.progress_dir)
@@ -179,18 +195,35 @@ function M.request(req,done)
                 end
                 UI:scheduleIn(0.2,poll)
             end
+            if not dialog and (scoped or UI.show) then
+                wait_widget=require('ui/widget/trapwidget'):new{text=req.wait_message or '正在访问云端（点击可取消）…'}
+                UI:show(wait_widget);UI:forceRePaint()
+            end
+            -- The parent enforces a wall-clock bound even if a child socket or
+            -- subprocess poll never completes. Trapper's dismissal terminates
+            -- and collects the child before the task releases its resources.
+            if UI.scheduleIn then
+                deadline=function()timed_out=true;handle.cancel()end
+                UI:scheduleIn(total_timeout(req)+35,deadline)
+            end
             local completed,e,r=trapper:dismissableRunInSubprocess(function()
                 local ok,a,b=pcall(M.perform,req)
                 if not ok then return Errors.exception(a,'网络传输子进程',writing(req)) end
                 return a,b
             end,
-                dialog or req.wait_message or '正在访问 WebDAV（点击可取消）…')
+                dialog or wait_widget or req.wait_message or '正在访问 WebDAV（点击可取消）…')
             if not completed then
                 handle.cancelled=true
                 local write=writing(req)
                 e=Errors.new(write and 'UNCERTAIN' or 'CANCELLED',
                     write and '已取消等待，远端写入结果未知，请重新查询' or '已取消请求',
                     {outcome=write and 'uncertain' or 'failed'})
+                if timed_out then
+                    e=Errors.new(write and 'UNCERTAIN' or 'NETWORK',
+                        write and '网络请求超时，已停止传输；云端写入结果未知，请重新查询'
+                            or '网络请求超时，已停止传输，请检查网络后重试',
+                        {outcome=write and 'uncertain' or 'failed'})
+                end
             elseif not e and (type(r)~='table' or type(r.status)~='number') then
                 local write=writing(req)
                 e=Errors.new(write and 'UNCERTAIN' or 'NETWORK','网络传输子进程没有返回有效结果；可能异常退出，请检查 KOReader 日志',
@@ -199,10 +232,12 @@ function M.request(req,done)
             -- Clean up before handing control back to a callback that may start
             -- another request. Closing normally must never trigger cancellation.
             if dialog then dialog.dismiss_callback=nil;dialog:close();dialog=nil;UI:unschedule(poll) end
+            if wait_widget then wait_widget.dismiss_callback=nil;UI:close(wait_widget);wait_widget=nil end
             if marker then os.remove(marker);marker=nil end
             finish(e,r)
         end)
         if dialog then dialog.dismiss_callback=nil;pcall(dialog.close,dialog);if poll then UI:unschedule(poll) end end
+        if wait_widget then wait_widget.dismiss_callback=nil;pcall(UI.close,UI,wait_widget) end
         if marker then os.remove(marker) end
         if not ok then finish(Errors.exception(err,'网络传输',writing(req))) end
     end)

@@ -1,4 +1,5 @@
 package.path='baidupansync.koplugin/?.lua;'..package.path
+package.loaded['ui/uimanager']={scheduleIn=function()end,unschedule=function()end}
 local function attr(path,key)local a=fixture_attributes(path);return key and a and a[key] or a end
 package.loaded['libs/libkoreader-lfs']={attributes=attr,symlinkattributes=attr,mkdir=fixture_mkdir,rmdir=fixture_rmdir,
     dir=function(path)local names=fixture_listdir(path);local i=0;return function()i=i+1;return names[i]end end}
@@ -170,6 +171,21 @@ local function deletion_suite(s,entry,files,key,put)
     local race=run(s,'delete_book',entry,{confirm=function(_,done)put(paths[2],'changed-progress');done(true)end})
     assert(race.e.code=='CONFLICT' and exists(paths[1]) and exists(paths[3]))
     if type(before)=='table' then put(paths[2],before.raw)else put(paths[2],before)end
+    local original_delete=s.backend.delete
+    s.backend.delete=function(self,path,pre,cb)
+        if path==paths[2] then return cb(require('modules/errors').new('NETWORK','fixture disconnect')) end
+        return original_delete(self,path,pre,cb)
+    end
+    local interrupted=run(s,'delete_book',entry,{confirm=function(_,done)done(true)end})
+    assert(interrupted.e.code=='UNCERTAIN' and not exists(paths[1]) and exists(paths[3]))
+    s.backend.delete=original_delete
+    local listed=run(s,'list',options).value
+    local incomplete
+    for _,candidate in ipairs(listed.entries) do
+        if candidate.record.bookId==entry.record.bookId then incomplete=candidate end
+    end
+    assert(incomplete and incomplete.incomplete and not incomplete.book_stat)
+    entry=incomplete
     local wrong_entry={record=entry.record,backend_id='another-backend'}
     assert(run(s,'delete_book',wrong_entry,{confirm=function()error('must not confirm')end}).e.code=='CONFLICT')
     local complete=run(s,'delete_book',entry,{confirm=function(_,done)done(true)end})
@@ -280,7 +296,7 @@ local function repair_and_cache(backend,seed,remove,contents)
     assert(cancelled.e.code=='CANCELLED' and not contents('metadata/'..id..'.json'))
     seed('books/'..id..'.epub','X'..raw:sub(2))
     local corrupt=run(s,'repair_book',run(s,'list',options).value.unpublished[1],repair_opts)
-    assert(corrupt.e.code=='UNCERTAIN' and not contents('metadata/'..id..'.json'))
+    assert(corrupt.e.code=='CONFLICT' and not contents('metadata/'..id..'.json'))
     seed('books/'..id..'.epub',raw)
     orphan=run(s,'list',options).value.unpublished[1]
     local race=run(s,'repair_book',orphan,{schedule=options.schedule,confirm=function(_,done)

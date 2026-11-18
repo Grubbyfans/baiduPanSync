@@ -59,21 +59,27 @@ function M:identify(context,opts)
 end
 function M:confirm(info,opts)
     if not opts.confirm then fail('INVALID_INPUT','此操作需要用户确认') end
-    local decision=A.await(function(done)opts.confirm(info,function(choice)done(choice)end)end)
+    local decision=A.await(function(done)opts.confirm(info,function(choice)done(choice)end)end,{no_timeout=true})
     if not decision or decision=='cancel' or (type(decision)=='table' and decision.mode=='cancel') then fail('CANCELLED','用户取消操作') end
     return decision
 end
 function M:step(state)
     if self.task.state==state then return end
     A.check(self.task:transition(state))
+    if state=='writing' or state=='persisting_restore' then self.mutation_started=true end
 end
 function M:phase(name,opts)
     if opts.on_phase then pcall(opts.on_phase,name) end
 end
 function M:run(kind,opts,fn,done)
-    opts=opts or {};done=done or function()end
+    local supplied=opts or {};opts={}
+    for k,v in pairs(supplied) do opts[k]=v end
+    done=done or function()end
     if self.active then return done(Errors.new('CONFLICT','已有云端任务，请先完成或取消')) end
-    self.active=true;self.cleanup={};self.task=Task:new{kind=kind,on_state=opts.on_state}
+    local stopped=false
+    local is_cancelled=opts.is_cancelled
+    opts.is_cancelled=function()return stopped or (is_cancelled and is_cancelled())end
+    self.active=true;self.cleanup={};self.mutation_started=false;self.task=Task:new{kind=kind,on_state=opts.on_state}
     local task=self.task
     task:transition('preparing')
     A.run(function()
@@ -81,18 +87,29 @@ function M:run(kind,opts,fn,done)
         if self.backend.kind=='baidu' then self:call('ensureAuthorized') end
         return fn(opts)
     end,function(e,result)
+        stopped=true
         for i=#self.cleanup,1,-1 do pcall(self.cleanup[i]) end
         self.active=false
         if e then
             if (kind=='upload_book' or kind=='progress_upload' or kind=='delete_book' or kind=='repair_book') and task.state=='verifying'
-                and e.code~='UNCERTAIN' and e.outcome~='uncertain' then
+                and not e.definite and e.code~='UNCERTAIN' and e.outcome~='uncertain' then
                 e=Errors.new('UNCERTAIN','云端修改已发出但未完整核验：'..e.message,{outcome='uncertain'})
             end
             local state=e.code=='CANCELLED' and 'cancelled' or (e.outcome=='uncertain' or e.code=='UNCERTAIN') and 'uncertain' or 'failed'
             task:transition(state,{code=e.code})
         else task:transition('done');result=result or {};result.task=task end
         done(e,result)
-    end)
+    end,{
+        timeout=opts.watchdog_timeout or 3700,
+        schedule=opts.watchdog_schedule or function(seconds,cb)require('ui/uimanager'):scheduleIn(seconds,cb)end,
+        unschedule=opts.watchdog_unschedule or function(cb)require('ui/uimanager'):unschedule(cb)end,
+        error=function()
+            return Errors.new(self.mutation_started and 'UNCERTAIN' or 'NETWORK',
+                self.mutation_started and '任务等待超时，已停止本次操作；修改结果未知，请重新查询，勿直接重试写入'
+                    or '任务等待超时，已停止本次操作，请检查网络后重试',
+                {outcome=self.mutation_started and 'uncertain' or 'failed'})
+        end,
+    })
 end
 function M:directory(path)
     local st=self:optional_stat(path)
@@ -260,8 +277,13 @@ function M:listing(cached)
                 else
                     local book=candidates[snapshot.record.path]
                     if book and book.type=='file' and book.size==snapshot.record.size then
-                        snapshot.book_stat=book;result[#result+1]=snapshot
-                    else issues[#issues+1]={path=entry.path,message='书籍缺失或大小不一致'} end
+                        snapshot.book_stat=book;snapshot.incomplete=nil;result[#result+1]=snapshot
+                    else
+                        -- Keep validated records actionable after partial deletion.
+                        -- Their exact surviving files are rechecked before cleanup.
+                        snapshot.book_stat=book;snapshot.incomplete=true;result[#result+1]=snapshot
+                        issues[#issues+1]={path=entry.path,message='书籍缺失或大小不一致',recoverable=true}
+                    end
                 end
             elseif entry.type=='file' then issues[#issues+1]={path=entry.path,message='无法识别的发布记录'}
             elseif id then issues[#issues+1]={path=entry.path,message='发布记录不是文件'} end
@@ -314,6 +336,8 @@ function M:verify_remote_book(identity,path,opts)
         return temp
     end,done)end)
     if e then
+        if e.code=='CONFLICT' then e.definite=true;error(e,0) end
+        if e.code=='CANCELLED' then error(e,0) end
         fail('UNCERTAIN','云端 EPUB 已存在，但整书校验未完成，本次书库发布已停止。\n阶段：'..stage..
             '\n位置：'..self.backend.root..' / '..path..'\n原因：'..e.message..
             '\n修复原因后，可从书库“修复未发布书籍”重试，或再次上传并选择“检查并补全发布”。无需删除云端 EPUB。','uncertain')
@@ -326,7 +350,9 @@ function M:upload_book(context,opts,done)
         local identity=self:identify(context,o)
         self:step('reading_remote');self:ready();self:directory('books');self:directory('metadata')
         local entries,issues=self:listing()
-        if #issues>0 then fail('CONFLICT','云端发布记录不完整，无法可靠检查同名：'..issues[1].path) end
+        for _,issue in ipairs(issues) do
+            if not issue.recoverable then fail('CONFLICT','云端发布记录不完整，无法可靠检查同名：'..issue.path) end
+        end
         local filename=A.check(Meta.name(context.book.file_name))
         local collisions,own={},nil
         for _,entry in ipairs(entries) do
@@ -365,7 +391,9 @@ function M:upload_book(context,opts,done)
         local checked=self:identify(context,o)
         if checked.book_id~=identity.book_id then fail('CONFLICT','源书籍内容已变化') end
         local current_entries,current_issues=self:listing()
-        if #current_issues>0 then fail('CONFLICT','确认后云端书库变得不完整') end
+        for _,issue in ipairs(current_issues) do
+            if not issue.recoverable then fail('CONFLICT','确认后云端书库变得不完整') end
+        end
         -- Detect newly created same-name entries before publishing anything.
         local known={};for _,entry in ipairs(entries) do known[entry.record.bookId]=entry end
         for _,entry in ipairs(current_entries) do

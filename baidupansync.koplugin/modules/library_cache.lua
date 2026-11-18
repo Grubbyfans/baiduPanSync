@@ -25,12 +25,15 @@ function M:load(id,root)
     local result={backend_id=id,backend=root,entries={},issues={},unpublished={},updated_at=v.updated_at,cached=true}
     local seen={}
     for _,entry in ipairs(v.entries) do
-        if type(entry)~='table' or not stat(entry.stat) or not stat(entry.book_stat) then return nil end
+        if type(entry)~='table' or not stat(entry.stat)
+            or (entry.incomplete~=nil and entry.incomplete~=true)
+            or (entry.book_stat~=nil and not stat(entry.book_stat)) then return nil end
         local record=Meta.decode(entry.raw)
-        if not record or entry.stat.size~=#entry.raw or record.size~=entry.book_stat.size or seen[record.bookId] then return nil end
+        if not record or entry.stat.size~=#entry.raw or seen[record.bookId]
+            or (not entry.incomplete and (not entry.book_stat or record.size~=entry.book_stat.size)) then return nil end
         seen[record.bookId]=true
         result.entries[#result.entries+1]={record=record,raw=entry.raw,fingerprint=Hash.sha256_text(entry.raw),
-            stat=entry.stat,book_stat=entry.book_stat,backend_id=id}
+            stat=entry.stat,book_stat=entry.book_stat,incomplete=entry.incomplete,backend_id=id}
     end
     -- Orphans are hints only; repair rechecks existence and the exact version.
     if type(v.unpublished)=='table' and #v.unpublished>10000 then return nil end
@@ -54,10 +57,12 @@ function M:save(id,result)
     local entries,budget={},0
     if #result.entries>10000 then return false end
     for _,entry in ipairs(result.entries) do
-        if type(entry.raw)~='string' or not stat(entry.stat) or not stat(entry.book_stat) then return false end
+        if type(entry.raw)~='string' or not stat(entry.stat)
+            or (entry.book_stat~=nil and not stat(entry.book_stat))
+            or (not entry.incomplete and not entry.book_stat) then return false end
         budget=budget+#entry.raw*2+8192
         if budget>M.MAX_BYTES then return false end -- bound encoding allocations too
-        entries[#entries+1]={raw=entry.raw,stat=entry.stat,book_stat=entry.book_stat}
+        entries[#entries+1]={raw=entry.raw,stat=entry.stat,book_stat=entry.book_stat,incomplete=entry.incomplete}
     end
     budget=budget+#(result.unpublished or {})*2048+#(result.issues or {})*4096
     if budget>M.MAX_BYTES then return false end

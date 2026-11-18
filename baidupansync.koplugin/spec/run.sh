@@ -56,9 +56,10 @@ RUN_ENV=(
 
 if [[ "${1:-}" == "--bench" ]]; then
     shift
-    exec env "${RUN_ENV[@]}" "$LUAJIT" "$PLUGIN_DIR/spec/bench/hash_bench.lua" "$@"
+    env "${RUN_ENV[@]}" "$LUAJIT" "$PLUGIN_DIR/spec/bench/hash_bench.lua" "$@"
+    exit $?
 fi
 
-exec env "${RUN_ENV[@]}" \
+env "${RUN_ENV[@]}" \
     "$LUAJIT" -e 'require("ffi/loadlib"); require("busted.runner") {standalone = false}' \
     /dev/null --output=gtest --loaders=lua --lazy --no-keep-going "$PLUGIN_DIR/spec/unit" "$@"

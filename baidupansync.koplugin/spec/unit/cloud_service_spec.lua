@@ -330,4 +330,78 @@ describe('WebDAV D/E/F orchestration',function()
         assert.is_nil(r.e);assert.is_true(approved);assert.is_equal(2,r.value.record.sync.revision)
     end)
 
+    it('keeps partial deletions actionable and allows unrelated uploads',function()
+        local entry=published()
+        backend.files['progress/'..entry.record.bookId..'.json']='old progress'
+        backend.hook=function(method,path)
+            if method=='delete' and path:match('^progress/') then return Errors.new('NETWORK','disconnect') end
+        end
+        assert.is_equal('UNCERTAIN',run('delete_book',entry,options()).e.code)
+        backend.hook=nil
+        local listed=run('list',options()).value
+        assert.is_equal(1,#listed.entries);assert.is_true(listed.entries[1].incomplete)
+        assert.is_nil(listed.entries[1].book_stat)
+        local cache=require('modules/library_cache'):new(root..'/cache')
+        assert(cache:save(backend.backend_id,listed))
+        assert.is_true(cache:load(backend.backend_id,backend.root).entries[1].incomplete)
+        book=write(root..'/unrelated.epub','unrelated EPUB');context=capture()
+        context.book.file_name='unrelated.epub'
+        assert.is_nil(run('upload_book',context,options()).e)
+        assert.is_nil(run('delete_book',listed.entries[1],options()).e)
+        assert.is_nil(backend.files['metadata/'..entry.record.bookId..'.json'])
+        assert.is_nil(backend.files['progress/'..entry.record.bookId..'.json'])
+        assert.is_equal(1,#run('list',options()).value.entries)
+    end)
+
+    it('restores a missing EPUB through reupload and clears the incomplete cache flag',function()
+        local entry=published();backend.files[entry.record.path]=nil
+        local listed=run('list',options()).value
+        assert.is_true(listed.entries[1].incomplete)
+        assert.is_nil(run('upload_book',context,options{confirm=function(_,cb)
+            cb{mode='overwrite',book_id=entry.record.bookId}
+        end}).e)
+        local fresh=run('list',options{cached_result=listed}).value
+        assert.is_nil(fresh.entries[1].incomplete);assert.is_equal(0,#fresh.issues)
+    end)
+
+    it('releases a stalled task once, cleans resources and prevents delayed writes',function()
+        local A=require('modules/async')
+        local timers,pending,count,err,cancelled={}
+        count=0
+        local o=options{watchdog_timeout=10,
+            watchdog_schedule=function(_,cb)timers[cb]=true end,
+            watchdog_unschedule=function(cb)timers[cb]=nil end}
+        service:run('upload_book',o,function()
+            service:step('reading_remote');service:step('rechecking');service:step('writing')
+            local path=service:temporary(root..'/temporary')
+            service.stalled_path=path
+            A.call(function(cb)
+                pending=cb;A.on_cancel(function()cancelled=true end)
+            end)
+            backend.files['should-not-exist']='late write'
+        end,function(e)count=count+1;err=e;assert.is_true(cancelled)end)
+        assert.is_true(service.active)
+        local expire=next(timers);assert.is_truthy(expire);expire()
+        assert.is_equal('UNCERTAIN',err.code);assert.is_false(service.active)
+        assert.is_nil(lfs.attributes(service.stalled_path))
+        local next_task=run('list',options());assert.is_nil(next_task.e)
+        pending(nil,{});assert.is_equal(1,count);assert.is_nil(backend.files['should-not-exist'])
+    end)
+
+    it('times out a stalled qualification without leaving temporary write permissions',function()
+        local timers,err={}
+        backend.conditional_verified=false;backend.conditional_delete_verified=false
+        backend.uploadSmallJson=function()end
+        service:upload_book(context,options{
+            watchdog_schedule=function(_,cb)timers[cb]=true end,
+            watchdog_unschedule=function(cb)timers[cb]=nil end,
+        },function(e)err=e end)
+        assert.is_true(backend.conditional_verified)
+        local expire=next(timers);assert.is_truthy(expire);expire()
+        assert.is_equal('NETWORK',err.code)
+        assert.is_false(service.active);assert.is_false(backend.conditional_verified)
+        assert.is_false(backend.conditional_delete_verified)
+        assert.is_true(service.task:is_terminal())
+    end)
+
 end)

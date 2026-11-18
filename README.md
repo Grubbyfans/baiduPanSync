@@ -4,7 +4,7 @@
 
 - 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.8，开发基线）
 - 文档分析：[分析结果.md](分析结果.md)
-- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.9.1：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
+- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.9.2：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
 - 安装/使用/测试说明：[baidupansync.koplugin/README.md](baidupansync.koplugin/README.md)
 - 阶段 A 验收记录：[阶段A验收记录.md](阶段A验收记录.md)（已通过）
 - 阶段 B 验收记录：[阶段B验收记录.md](阶段B验收记录.md)
@@ -24,6 +24,8 @@ KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
 ## 本地 WebDAV 测试服务
 
 已提供零依赖 Node.js 服务：[serve/README.md](serve/README.md)。修改 `serve/config.json` 的端口、账户和存储目录后，运行 `node serve/server.js`，可测试插件的 C1 上传下载及条件写入。
+
+0.9.2 修复删除中断后的书库恢复与上传阻塞；整书内容冲突保留明确错误；增加网络请求及异步任务超时收尾、迟到回调隔离；修复测试临时目录清理。
 
 0.9.1（文档更新）：记录双后端核心闭环在 Kobo 与 Kindle 的真机验收结果，未改动运行逻辑。
 

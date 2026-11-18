@@ -58,7 +58,7 @@ Task.TRANSITIONS = {
     },
     downloading = { validating = true, failed = true, cancelled = true, uncertain = true },
     validating = { committing_local = true, persisting_restore = true, failed = true, cancelled = true },
-    persisting_restore = { applying = true, failed = true, cancelled = true },
+    persisting_restore = { applying = true, failed = true, cancelled = true, uncertain = true },
     applying = {
         checking_position = true, failed = true, cancelled = true, uncertain = true,
     },

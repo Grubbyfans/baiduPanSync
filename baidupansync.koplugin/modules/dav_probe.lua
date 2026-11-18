@@ -15,7 +15,14 @@ function M.run(adapter,done)
     local function require_true(ok,message)
         if not ok then error(Errors.new('UNSUPPORTED',message),0) end
     end
+    local unregister=function()end
     A.run(function()
+        unregister=A.on_cancel(function()
+            -- A task abort must never leave the temporary probe permission
+            -- looking like a successful qualification of the whole service.
+            adapter.conditional_verified=false
+            adapter.conditional_delete_verified=false
+        end)
         call('mkdir',dir)
         adapter.conditional_verified=true -- only within our random probe namespace
         call('uploadSmallJson',path,text,{absent=true})
@@ -45,6 +52,7 @@ function M.run(adapter,done)
         end
         return report
     end,function(probe_err)
+        unregister()
         adapter.conditional_verified=report.conditional_create and report.conditional_replace
         adapter.conditional_delete_verified=report.conditional_delete
         A.run(function()
