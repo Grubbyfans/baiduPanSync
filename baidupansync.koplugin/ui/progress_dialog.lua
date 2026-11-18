@@ -7,6 +7,7 @@ Progress services stay UI-free; this module owns the progress dialogs.
 local ConfirmBox = require("ui/widget/confirmbox")
 local InfoMessage = require("ui/widget/infomessage")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
+local ButtonDialog = require('ui/widget/buttondialog')
 local UIManager = require("ui/uimanager")
 local _ = require("gettext")
 
@@ -25,7 +26,46 @@ function Dialog.book_text(record_or_book)
     return title
 end
 
-function Dialog.error(err, extra)
+function Dialog.result(title,text,actions)
+    local buttons,dialog,selected={},nil,false
+    -- Keep action buttons reachable even when an error contains long paths.
+    local lines={}
+    for line in (text..'\n'):gmatch('(.-)\n') do
+        if #lines==5 then break end
+        lines[#lines+1]=line
+    end
+    local summary=table.concat(lines,'\n')
+    if #summary>288 then
+        local ending=288
+        while ending>0 do
+            local nextbyte=summary:byte(ending+1)
+            if not nextbyte or nextbyte<128 or nextbyte>=192 then break end
+            ending=ending-1
+        end
+        summary=summary:sub(1,ending)
+    end
+    local shortened=summary~=text
+    if shortened then summary=summary..'…' end
+    local function choose(action)return function()
+        if selected then return end;selected=true
+        UIManager:close(dialog)
+        if action then action()end
+    end end
+    for _,action in ipairs(actions or {}) do
+        buttons[#buttons+1]={{text=action.text,enabled=action.enabled~=false,callback=choose(action.callback)}}
+    end
+    if shortened then
+        buttons[#buttons+1]={{text=_('查看完整信息'),callback=function()
+            UIManager:show(require('ui/widget/textviewer'):new{title=title,text=text})
+        end}}
+    end
+    buttons[#buttons+1]={{text=_('关闭'),callback=choose()}}
+    dialog=ButtonDialog:new{title=title..'\n\n'..summary,buttons=buttons,dismissable=false}
+    UIManager:show(dialog)
+    return dialog
+end
+
+function Dialog.error(err, extra, actions)
     local message
     if type(err) == "table" and err.message then
         message = err.message
@@ -38,6 +78,7 @@ function Dialog.error(err, extra)
     if extra then
         message = message .. "\n" .. extra
     end
+    if actions and #actions>0 then return Dialog.result(_('操作未完成'),message,actions) end
     UIManager:show(InfoMessage:new{
         text = message,
         flush_events_on_show = true,

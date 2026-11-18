@@ -14,7 +14,9 @@ package.loaded['ui/menu']={};package.loaded.logger={info=function()end,warn=func
 package.loaded['modules/book_cover']={extract=function()end}
 package.loaded['modules/local_library']={}
 local notice
-package.loaded['ui/progress_dialog']={error=function(e)errors=errors+1;notice=e end,info=function(text,persistent)notice={text=text,persistent=persistent}end}
+package.loaded['ui/progress_dialog']={error=function(e)errors=errors+1;notice=e end,
+    info=function(text,persistent)notice={text=text,persistent=persistent}end,
+    result=function(title,text,actions)notice={text=text,persistent=true,actions=actions}end}
 G_reader_settings={readSetting=function()return '/books' end}
 local cached={backend='fixture',backend_id='backend',entries={},issues={},unpublished={}}
 local cache={load=function()return cached end,save=function()saved=saved+1;return true end,

@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.9.5: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.9.6: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.9.5"
+local VERSION = "0.9.6"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -165,12 +165,25 @@ function BaiduPanSync:onUndoRestore()
     end)
 end
 
+function BaiduPanSync:_connectionActions(mode,auth)
+    return {{text=auth and mode=='baidu' and '重新授权' or '检查连接设置',callback=function()
+        if (self.active_backend or 'webdav')~=mode then
+            return Dialog.error(require('modules/errors').new('CONFLICT','当前后端已变化，请从主页重新操作'))
+        end
+        if mode=='baidu' then
+            local dialog=require('ui/baidu_dialog')
+            if auth then dialog.authorize(self)else dialog.show(self)end
+        else require('ui/backend_dialog').configure(self)end
+    end}}
+end
+
 function BaiduPanSync:_cloud(operation, entry)
     if self.dav_busy or self.undo_busy or self.baidu_busy then return Dialog.info("已有任务正在进行，请稍候。") end
     local mode=self.active_backend or 'webdav'
     local backend
     if mode=='baidu' then
-        local err;backend,err=self:_baiduBackend();if not backend then return Dialog.error(err) end
+        local err;backend,err=self:_baiduBackend()
+        if not backend then return Dialog.error(err,nil,self:_connectionActions(mode,err.code=='AUTH')) end
     elseif mode=='webdav' then
         if self.dav_load_error then return Dialog.error(self.dav_load_error) end
         if not self.dav_adapter then return Dialog.info("请先配置 WebDAV。") end
@@ -241,6 +254,26 @@ function BaiduPanSync:_cloud(operation, entry)
     if cached then
         opts.cached_result=cached;cached.refreshing=true;show_library(cached)
     end
+    local function checked(action,needs_book)return function()
+        local ok,err=opts.guard()
+        if ok and needs_book then ok,err=self.progress:_check_context(context) end
+        if not ok then return Dialog.error(err) end
+        action()
+    end end
+    local library_action={text='查看云端书库',callback=checked(function()self:onCloudLibrary()end)}
+    local compare_action={text='查看进度对比',callback=checked(function()self:onQueryCloudProgress()end,true)}
+    local function show_error(err)
+        if err.code=='CANCELLED' then return Dialog.error(err) end
+        local actions
+        if err.code=='AUTH' then actions=self:_connectionActions(mode,true)
+        elseif err.code=='UNCERTAIN' or err.outcome=='uncertain' then
+            actions={(context and operation~='upload_book') and compare_action or library_action}
+        elseif err.code=='NETWORK' or err.code=='TLS' then
+            actions=self:_connectionActions(mode,false)
+            if operation=='query' then table.insert(actions,1,compare_action) end
+        else actions={library_action} end
+        return Dialog.error(err,backend_label,actions)
+    end
     local function completed(e,result)
         if scan_ui then scan_ui:close() end
         self.dav_busy=false
@@ -258,12 +291,12 @@ function BaiduPanSync:_cloud(operation, entry)
             if view and view.closed then return end
             if e then
                 if cached and view then cached.refreshing=nil;cached.refresh_error=e.message;view:updateResult(cached) end
-                return Dialog.error(e)
+                return show_error(e)
             end
             return show_library(result)
         end
         if operation=='repair_book' then
-            if e then return Dialog.error(e) end
+            if e then return show_error(e) end
             local grid=self.library_dialog
             if grid and not grid.closed and grid.result.backend_id==backend.backend_id then
                 local result_view=grid.result
@@ -272,40 +305,39 @@ function BaiduPanSync:_cloud(operation, entry)
                 end
                 result_view.entries[#result_view.entries+1]=result.entry;grid:updateResult(result_view)
             end
-            return Dialog.info('已完成整书校验并补全发布：'..result.record.title..'\n未修改云端 EPUB 或阅读进度。',true)
+            return Dialog.result('书库发布完成',backend_label..'\n已完成整书校验并补全发布：'..
+                result.record.title..'\n未修改云端 EPUB 或阅读进度。',{library_action})
         end
         if operation=='delete_book' then
             if not e or e.code~='CANCELLED' then
                 if self.library_dialog then UIManager:close(self.library_dialog);self.library_dialog=nil end
-                self:_cloud('list')
             end
-            if e then return Dialog.error(e) end
-            return Dialog.info('云端书籍、书库记录和云端进度已删除。本机文件与阅读位置保留。')
+            if e then return show_error(e) end
+            return Dialog.result('云端删除完成',backend_label..'\n云端书籍、书库记录和云端进度已删除。\n本机文件与阅读位置保留。',{library_action})
         end
-        if e then return Dialog.error(e) end
+        if e then return show_error(e) end
         if operation=="query" then
             result.backend_label=backend_label
-            local function checked(action)return function()
-                local ok,err=opts.guard()
-                if ok then ok,err=self.progress:_check_context(context) end
-                if not ok then return Dialog.error(err) end
-                action()
-            end end
             return cloud_dialog.query(result,context,{
-                upload=checked(function()self:onUploadCloudProgress()end),
-                download=checked(function()self:onDownloadCloudProgress()end),
-                refresh=checked(function()self:onQueryCloudProgress()end),
-                undo=self:hasRestorePoint() and checked(function()self:onUndoRestore()end) or nil,
+                upload=checked(function()self:onUploadCloudProgress()end,true),
+                download=checked(function()self:onDownloadCloudProgress()end,true),
+                refresh=checked(function()self:onQueryCloudProgress()end,true),
+                undo=self:hasRestorePoint() and checked(function()self:onUndoRestore()end,true) or nil,
             })
         elseif operation=="download_book" then
             return cloud_dialog.downloaded(result,function(file)
                 self:closeHome()
                 require("apps/reader/readerui"):showReader(file)
-            end)
+            end,library_action.callback)
         elseif operation=="upload_book" then
-            return Dialog.info(result.skipped and "已跳过。" or "书籍已发布并回读确认。阅读进度未自动上传。",true)
-        elseif operation=="upload" then return Dialog.info(result.unchanged and "云端位置相同，已确认当前基线。" or "阅读进度已上传并回读确认。")
-        else return Dialog.info("云端进度已应用并保存基线，可撤销恢复。") end
+            if result.skipped then return Dialog.info('已跳过。') end
+            return Dialog.result('书籍发布完成',backend_label..'\n书籍已发布并回读确认。阅读进度未自动上传。',{
+                {text='上传阅读进度',callback=checked(function()self:onUploadCloudProgress()end,true)},library_action})
+        elseif operation=="upload" then
+            return Dialog.result('阅读进度上传完成',backend_label..'\n'..
+                (result.unchanged and '云端位置相同，已确认当前基线。' or '阅读进度已上传并回读确认。'),{compare_action})
+        else return Dialog.result('云端进度已应用',backend_label..'\n已保存基线，可撤销本次恢复。',{
+            {text='撤销上次应用',callback=checked(function()self:onUndoRestore()end,true)},compare_action}) end
     end
     if operation=="list" then
         if cached then UIManager:scheduleIn(0.1,function()

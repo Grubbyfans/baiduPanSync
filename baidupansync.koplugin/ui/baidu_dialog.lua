@@ -50,7 +50,9 @@ function M.authorize(plugin,phone_setup)
         if page and not page.closed then page.completed=true;page:close() end
         plugin:refreshHome()
         if err then Dialog.error(err)
-        else Dialog.info('百度授权成功，已核对用户身份并保存凭据。\n可运行 C2 测试；运行连接测试后，可在连接设置中切换到百度网盘。') end
+        else Dialog.result('百度授权成功','已核对用户身份并保存凭据。\n接下来验证连接，通过后可选择使用百度网盘。',{
+            {text='验证连接',callback=function()M.probe(plugin)end},
+        }) end
     end
     local function submit(code,done)
         if not auth then return done(E.new('CONFLICT','授权会话未就绪')) end
@@ -115,9 +117,11 @@ function M.probe(plugin)
         p.last_probe=result
         local saved,save_err=plugin.baidu_store:save(p)
         if not saved then return Dialog.error(save_err,'测试已完成，但本地验收记录保存失败。') end
-        Dialog.info('百度网盘连接验证通过：用户身份、建目录、上传、枚举、下载回读及删除测试 JSON。\n'..
+        Dialog.result('百度网盘连接验证通过','已完成用户身份和测试文件上传、下载、删除验证。\n'..
             '目录：'..result.directory..'\n测试文件已删除，空测试目录保留。\n'..
-            '不支持已验证的原子条件写入；并发进度上传只能尽力避免覆盖。')
+            '请避免多台设备同时上传同一本书的进度。',{
+                {text='选择同步后端',callback=function()M.switch_backend(plugin)end},
+            })
     end)
 end
 function M.show(plugin)

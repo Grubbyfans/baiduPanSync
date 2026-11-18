@@ -152,15 +152,18 @@ function M.query(result,context,actions)
     UI:show(dialog)
     return dialog
 end
-function M.downloaded(result,open)
+function M.downloaded(result,open,on_library)
     local text='已下载并校验：'..result.path..'\n不会自动应用云端进度。'
     if result.backup then text=text..'\n旧文件备份：'..result.backup end
     if result.metadata_backups and #result.metadata_backups>0 then
         text=text..'\n旧书阅读设置已原样备份（未应用到新内容）：'..result.metadata_backups[1].backup
     end
     if result.restart_required then
-        return Dialog.info(text..'\n请先重启 KOReader，再打开这本书，避免沿用旧路径的元数据缓存。')
+        return Dialog.result(_('书籍下载完成'),text..'\n请先重启 KOReader，再打开这本书，避免沿用旧路径的元数据缓存。',
+            on_library and {{text=_('查看云端书库'),callback=on_library}} or {})
     end
-    UI:show(Confirm:new{title=_('书籍下载完成'),text=text,ok_text=_('打开书籍'),cancel_text=_('稍后'),ok_callback=function()open(result.path)end})
+    local actions={{text=_('打开书籍'),callback=function()open(result.path)end}}
+    if on_library then actions[#actions+1]={text=_('查看云端书库'),callback=on_library} end
+    return Dialog.result(_('书籍下载完成'),text,actions)
 end
 return M
