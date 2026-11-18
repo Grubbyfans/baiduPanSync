@@ -1,0 +1,34 @@
+BaiduPanSync_技术方案.md
+  h_7f20b2a03eb3b6 3,509,709-714
+README.md
+  h_7f20b2a03eb3b6 7,14,28-29
+baidupansync.koplugin/README.md
+  h_7f20b2a03eb3b6 3,119,136,147,217-229
+baidupansync.koplugin/_meta.lua
+  h_7f20b2a03eb3b6 5
+baidupansync.koplugin/main.lua
+  h_7f20b2a03eb3b6 2,24
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  h_7f20b2a03eb3b6 14-15
+阶段A验收记录.md
+  h_7f20b2a03eb3b6 151-156
+阶段B验收记录.md
+  h_7f20b2a03eb3b6 163-166
+阶段C2验收记录.md
+  h_7f20b2a03eb3b6 5,70-76
+阶段DEF验收记录.md
+  h_7f20b2a03eb3b6 7,83-88
+阶段百度DEF验收记录.md
+  h_7f20b2a03eb3b6 95-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fad79e14d84805ea1b928dc7e0721b6fbc8bbd22",
+  "prompts": {},
+  "humans": {
+    "h_7f20b2a03eb3b6": {
+      "author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
