@@ -1,0 +1,40 @@
+baidupansync.koplugin/README.md
+  s_29cedbef3ff996::t_7e735c5620e9a9 3,259-266
+baidupansync.koplugin/ui/baidu_dialog.lua
+  s_29cedbef3ff996::t_77a8e3ec2be4de 53-55,120,122-124
+baidupansync.koplugin/ui/cloud_dialog.lua
+  s_29cedbef3ff996::t_415e74381901bb 155,162-163,165-167
+baidupansync.koplugin/spec/library_flow_regression.lua
+  s_29cedbef3ff996::t_77a8e3ec2be4de 17-19
+baidupansync.koplugin/spec/unit/result_actions_spec.lua
+  s_29cedbef3ff996::t_feb6d12474bc09 1-89,98
+  s_29cedbef3ff996::t_05b7ed6f1e462c 90-97
+baidupansync.koplugin/main.lua
+  s_29cedbef3ff996::t_415e74381901bb 168-179,185-186,257-276,294,299,308-309,315-316,318,322-325,331,333-340
+  s_29cedbef3ff996::t_648fd3e6d05f4e 2,24
+baidupansync.koplugin/ui/progress_dialog.lua
+  s_29cedbef3ff996::t_05b7ed6f1e462c 31-48,56-60,63
+  s_29cedbef3ff996::t_415e74381901bb 10,29-30,49-55,61-62,64-68,81
+README.md
+  s_29cedbef3ff996::t_09a5348a084068 7,28-29
+baidupansync.koplugin/_meta.lua
+  s_29cedbef3ff996::t_b24d0ed3982b9f 5
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_29cedbef3ff996::t_6cd1484a6f8d83 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "53647fbd9aefed955aaaf1db0f7a8bf86c3582cc",
+  "prompts": {},
+  "sessions": {
+    "s_29cedbef3ff996": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ee60-caf6-7890-b764-dd71f3850999",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
