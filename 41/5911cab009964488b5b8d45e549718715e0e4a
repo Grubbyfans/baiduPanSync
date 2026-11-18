@@ -1,0 +1,65 @@
+baidupansync.koplugin/spec/baidu_cloud_regression.lua
+  s_29cedbef3ff996::t_a5d25663079845 2,299
+  s_29cedbef3ff996::t_7c2369cbdbfb05 174-188
+baidupansync.koplugin/spec/run.sh
+  s_29cedbef3ff996::t_75076964e62aa9 59-60,63
+baidupansync.koplugin/modules/library_cache.lua
+  s_29cedbef3ff996::t_a5d25663079845 28-30,32-33,36,60-62,65
+baidupansync.koplugin/modules/cloud_service.lua
+  s_29cedbef3ff996::t_1575b487fc1cbf 79-81,90
+  s_29cedbef3ff996::t_057b13585a5a82 75-77
+  s_29cedbef3ff996::t_a5d25663079845 95,339-340
+  s_29cedbef3ff996::t_3bf565bcd5551d 280
+  s_29cedbef3ff996::t_75076964e62aa9 62,69,82,102-112,281-286,353-355,394-396
+baidupansync.koplugin/spec/unit/async_spec.lua
+  s_29cedbef3ff996::t_dbeee39fcd4117 1-57
+baidupansync.koplugin/modules/async.lua
+  s_29cedbef3ff996::t_7c2369cbdbfb05 67
+  s_29cedbef3ff996::t_86cb57c1efd333 4-5,7-19,21-25,29,31-32,40,51-62,64-66,68-78
+  s_29cedbef3ff996::t_75076964e62aa9 6,63
+baidupansync.koplugin/spec/unit/cloud_service_spec.lua
+  s_29cedbef3ff996::t_7c2369cbdbfb05 391-406
+  s_29cedbef3ff996::t_1575b487fc1cbf 348
+  s_29cedbef3ff996::t_dbeee39fcd4117 333-347,349-390
+baidupansync.koplugin/spec/unit/transport_watchdog_spec.lua
+  s_29cedbef3ff996::t_057b13585a5a82 1-5,7-22,24-45
+  s_29cedbef3ff996::t_d6a225413ce7f7 6,23
+baidupansync.koplugin/modules/dav_probe.lua
+  s_29cedbef3ff996::t_7c2369cbdbfb05 18,20-25,55
+baidupansync.koplugin/spec/library_regression.lua
+  s_29cedbef3ff996::t_7c2369cbdbfb05 87-91
+baidupansync.koplugin/modules/dav_transport.lua
+  s_29cedbef3ff996::t_3bf565bcd5551d 8-11,15,157-158,162,201-208,221-226
+  s_29cedbef3ff996::t_a625b7db31cd5d 153-154,160-161,163-169,171,199-200,214,235,240
+  s_29cedbef3ff996::t_d6a225413ce7f7 198
+baidupansync.koplugin/ui/library_grid.lua
+  s_29cedbef3ff996::t_a5d25663079845 144,152-154,172
+baidupansync.koplugin/modules/task.lua
+  s_29cedbef3ff996::t_1575b487fc1cbf 61
+baidupansync.koplugin/README.md
+  s_29cedbef3ff996::t_65340913c54de1 3,230-240
+README.md
+  s_29cedbef3ff996::t_6cf8a585da9281 7,28-29
+baidupansync.koplugin/_meta.lua
+  s_29cedbef3ff996::t_4557ad51c0eec7 5
+baidupansync.koplugin/main.lua
+  s_29cedbef3ff996::t_1a72142dd89dc4 2,24
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_29cedbef3ff996::t_72f7350177e9e7 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "415911cab009964488b5b8d45e549718715e0e4a",
+  "prompts": {},
+  "sessions": {
+    "s_29cedbef3ff996": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ee60-caf6-7890-b764-dd71f3850999",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
