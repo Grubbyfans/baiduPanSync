@@ -19,9 +19,10 @@ local function rename(filename,done)
     UI:show(input);input:onShowKeyboard()
 end
 function M.confirm(info,done)
+    local backend=info.backend_label or info.backend
     if info.kind=='repair_book' then
         local input
-        input=Input:new{title='检查并补全发布\n'..info.backend..' / '..info.entry.path..
+        input=Input:new{title='检查并补全发布\n'..backend..' / '..info.entry.path..
             '\n将回读并校验整书，仅补写书库记录，不修改 EPUB 或云端进度。\n请输入用于书库显示的书名：',
             input='恢复书籍-'..info.entry.book_id:sub(1,12),dismissable=false,buttons={{
                 {text='取消',callback=function()UI:close(input);done(false)end},
@@ -34,7 +35,7 @@ function M.confirm(info,done)
         UI:show(input);input:onShowKeyboard();return
     end
     if info.kind=='delete_book' then
-        local lines={'书籍：'..M.library_title(info.record),'服务位置：'..info.backend,
+        local lines={'书籍：'..M.library_title(info.record),'服务位置：'..backend,
             '将删除云端 EPUB、书库记录和该书的云端阅读进度。本机已下载文件和阅读位置会保留。',
             '关联文件：\n'..table.concat(info.paths,'\n'),'删除后无法在插件内撤销。'}
         if info.best_effort then lines[#lines+1]='百度无法原子锁定删除目标，请避免其他设备同时上传或修改这本书。' end
@@ -47,7 +48,7 @@ function M.confirm(info,done)
         local kinds={first_contact='首次关联',unchanged='与已确认版本一致',remote_changed='云端记录已变化',
             same_revision_different_record='相同修订号但内容不同',remote_created='云端新出现记录',remote_deleted='云端记录已删除'}
         local text=string.format('后端：%s\n书籍：%s\n本地位置：%s\n云端位置：%s\n版本比较：%s',
-            info.backend,info.context.book.title or info.context.book.file_name,
+            backend,info.context.book.title or info.context.book.file_name,
             Dialog.percent_text(info.context.progress.percent),remote and Dialog.percent_text(remote.progress.percent) or '不存在',
             kinds[info.classification.kind] or '请重新核对')
         if remote then text=text..string.format('\n云端 revision：%d\n设备：%s\n设备时间：%s',remote.sync.revision,remote.sync.deviceId,remote.sync.updatedAt) end
@@ -57,7 +58,7 @@ function M.confirm(info,done)
         return
     end
     local buttons,dialog={},nil
-    local lines={'后端：'..info.backend,'文件：'..info.filename}
+    local lines={'后端：'..backend,'文件：'..info.filename}
     if info.kind=='download_book' then
         lines[#lines+1]='发现本地同名文件，请查看下方完整位置后选择覆盖、重命名或取消。任务会等待你的选择。覆盖不同内容会备份旧 EPUB 及已有阅读设置；启用 KOReader 哈希元数据存储时，覆盖后需重启再打开。'
         for i,candidate in ipairs(info.candidates) do
@@ -120,10 +121,10 @@ function M.library_entries(result,state)
     end)
     return entries
 end
-function M.library(result,on_download,page,on_show,on_close,state,on_delete,on_repair,on_refresh)
+function M.library(result,on_download,page,on_show,on_close,state,on_delete,on_repair,on_refresh,on_switch_backend)
     local grid=require('ui/library_grid'):new{result=result,on_download=on_download,
         page=page,state=state,on_close=on_close,title_for=M.library_title,filter=M.library_entries,on_delete=on_delete,
-        on_repair=on_repair,on_refresh=on_refresh}
+        on_repair=on_repair,on_refresh=on_refresh,on_switch_backend=on_switch_backend}
     if on_show then on_show(grid) end
     UI:show(grid)
     return grid
@@ -132,7 +133,7 @@ function M.query(result,context,actions)
     actions=actions or {}
     local record=result.remote and result.remote.record
     local lines={'阅读进度对比','书籍：'..(context.book.title or context.book.file_name),
-        '后端：'..result.backend,'本机位置：'..Dialog.percent_text(context.progress.percent),
+        '后端：'..(result.backend_label or result.backend),'本机位置：'..Dialog.percent_text(context.progress.percent),
         '云端位置：'..(record and Dialog.percent_text(record.progress.percent) or '尚无记录')}
     if record then
         lines[#lines+1]='云端设备：'..record.sync.deviceId

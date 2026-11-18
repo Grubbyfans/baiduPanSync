@@ -127,7 +127,7 @@ function Grid:options()
             end}},
         {{text=_('书库信息'),callback=function()
             UI:close(dialog)
-            local lines={'服务：'..self.result.backend,'书籍：'..#self.result.entries,
+            local lines={'后端：'..(self.result.backend_label or self.result.backend),'服务：'..self.result.backend,'书籍：'..#self.result.entries,
                 '异常记录：'..#self.result.issues}
             if self.result.updated_at then lines[#lines+1]='最近刷新：'..os.date('%Y-%m-%d %H:%M',self.result.updated_at) end
             if self.result.cached then lines[#lines+1]='当前显示本机缓存，操作前仍会核对云端版本。' end
@@ -203,9 +203,10 @@ function Grid:build()
     local w,h=self.dimen.w,self.dimen.h
     local caption=self.result.refreshing and '云端书库 · 缓存刷新中' or self.result.cached and '云端书库 · 本机缓存' or '云端书库'
     local title=Title:new{width=w,fullscreen=true,align='center',title=caption,
+        subtitle=self.result.backend_label or self.result.backend,
         left_icon='appbar.search',left_icon_tap_callback=function()self:search()end,
         close_callback=function()self:close()end}
-    local toolbar=ButtonTable:new{width=w,buttons={{
+    local toolbar_buttons={{
         {text=#(self.result.unpublished or {})>0 and string.format('排序 / 管理 · 未发布 %d',#self.result.unpublished)
             or #self.result.issues>0 and _('排序 / 管理（有异常）') or _('排序 / 管理'),callback=function()self:options()end},
         {text=self.state.query~='' and _('清除搜索') or _('搜索书籍'),callback=function()
@@ -213,7 +214,13 @@ function Grid:build()
                 self.state.query='';self.page=1;self:rebuild()
             else self:search() end
         end},
-    }}}
+    }}
+    if self.on_switch_backend then
+        toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('切换后端'),
+            callback=function()if not self.closed then self.on_switch_backend()end end}
+    end
+    self.toolbar_buttons=toolbar_buttons
+    local toolbar=ButtonTable:new{width=w,buttons=toolbar_buttons}
     self.entries=self.filter(self.result,self.state)
     local header=title:getSize().h+toolbar:getSize().h
     -- Navigation has a stable height; only its page label changes.

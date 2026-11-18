@@ -89,6 +89,19 @@ describe('persistent plugin page',function()
         local output=os.getenv('BPS_HOME_PREVIEW')
         if output then assert(Screen:shot(output)) end
     end)
+    it('keeps backend identity visible on the home page and library',function()
+        plugin:showHome()
+        assert.is_truthy(plugin.home_page:status():find('WebDAV · 192.168.1.2:8080/sync/',1,true))
+        local switched=0
+        local result={backend='http://test/sync/',backend_label='百度网盘 · 我的账户',entries={},issues={}}
+        local grid=CloudUI.library(result,function()end,nil,nil,nil,nil,nil,nil,nil,function()switched=switched+1 end)
+        assert.is_equal(result.backend_label,grid.result.backend_label)
+        grid.toolbar_buttons[1][3].callback();assert.is_equal(1,switched)
+        Screen.bb:fill(require('ffi/blitbuffer').COLOR_WHITE);grid:paintTo(Screen.bb,0,0)
+        local output=os.getenv('BPS_LIBRARY_PREVIEW')
+        if output then assert(Screen:shot(output))end
+        UI:close(grid)
+    end)
     it('returns to the same page after saving the actual WebDAV configuration dialog',function()
         plugin:showHome();local home=plugin.home_page
         home:onMenuSelect(home.item_table[4])

@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.9.4: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.9.5: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.9.4"
+local VERSION = "0.9.5"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -185,6 +185,7 @@ function BaiduPanSync:_cloud(operation, entry)
     local cloud=require("modules/cloud_service"):new{backend=backend,identity=self.identity,progress=self.progress,
         state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader"}
     local cloud_dialog=require("ui/cloud_dialog")
+    local backend_label=require('ui/backend_label').for_backend(backend)
     local opts=self:_hash_opts()
     local logger=require('logger')
     logger.info('BaiduPanSync',VERSION,mode,operation,'start',context and context.book.size or 0)
@@ -203,7 +204,7 @@ function BaiduPanSync:_cloud(operation, entry)
         end
         return true
     end
-    opts.confirm=cloud_dialog.confirm
+    opts.confirm=function(info,done)info.backend_label=backend_label;cloud_dialog.confirm(info,done)end
     if operation=='upload_book' or operation=='repair_book' then opts.make_cover=require('modules/book_cover').extract end
     local scan_ui
     local hash_cancelled=opts.is_cancelled
@@ -225,6 +226,7 @@ function BaiduPanSync:_cloud(operation, entry)
     local view=self.library_dialog
     if view and (view.closed or view.result.backend_id~=backend.backend_id) then view=nil end
     local function show_library(result)
+        result.backend_label=backend_label
         if view and not view.closed then view:updateResult(result);return view end
         if self.library_dialog then UIManager:close(self.library_dialog) end
         view=cloud_dialog.library(result,function(selected)self:_cloud('download_book',selected)end,nil,function(dialog)
@@ -232,7 +234,8 @@ function BaiduPanSync:_cloud(operation, entry)
         end,function(dialog)
             if self.library_dialog==dialog then self.library_dialog=nil end
         end,nil,function(selected)self:_cloud('delete_book',selected)end,
-            function(selected)self:_cloud('repair_book',selected)end,function()self:_cloud('list')end)
+            function(selected)self:_cloud('repair_book',selected)end,function()self:_cloud('list')end,
+            function()require('ui/baidu_dialog').switch_backend(self)end)
         return view
     end
     if cached then
@@ -281,6 +284,7 @@ function BaiduPanSync:_cloud(operation, entry)
         end
         if e then return Dialog.error(e) end
         if operation=="query" then
+            result.backend_label=backend_label
             local function checked(action)return function()
                 local ok,err=opts.guard()
                 if ok then ok,err=self.progress:_check_context(context) end

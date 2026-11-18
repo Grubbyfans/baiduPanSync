@@ -1,6 +1,7 @@
 -- A full-screen native KOReader page. Selecting actions never closes it.
 local Menu=require('ui/widget/menu')
 local Actions=require('ui/menu')
+local BackendLabel=require('ui/backend_label')
 local _=require('gettext')
 local Home=Menu:extend{is_borderless=true,items_per_page=6}
 local sections={
@@ -31,7 +32,7 @@ function Home:items()
     local profile=plugin.dav_profile
     actions.configure.text=profile and _('修改 WebDAV 配置') or _('配置 WebDAV')
     actions.probe.text=_('测试 WebDAV 连接')
-    actions.switch_backend.text=plugin.active_backend=='baidu' and _('当前后端：百度网盘 ›') or _('当前后端：WebDAV ›')
+    actions.switch_backend.text=_('切换后端：')..BackendLabel.for_plugin(plugin)..' ›'
     actions.library.text=_('云端书库 · 下载书籍')
     actions.upload_book.text=_('上传当前书籍')
     actions.query_progress.text=_('阅读进度 · 对比与同步')
@@ -69,7 +70,8 @@ function Home:status()
         backend=self.plugin.hasUsableBaidu and self.plugin:hasUsableBaidu() and _('百度网盘已连接') or _('百度网盘授权 / 连接需检查')
     end
     local section=sections[self.section]
-    return backend..' · '..(name and (_('当前书籍：')..name) or _('当前未打开书籍'))..
+    return _('当前后端：')..BackendLabel.for_plugin(self.plugin)..'\n'..
+        backend..' · '..(name and (_('当前书籍：')..name) or _('当前未打开书籍'))..
         (section and ('\n'..section.hint) or '')
 end
 
