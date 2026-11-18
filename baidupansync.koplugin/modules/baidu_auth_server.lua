@@ -10,14 +10,67 @@ function M.private_ip(ip)
     return a and b and c and d and a<=255 and b<=255 and c<=255 and d<=254 and d>0
         and (a==10 or (a==172 and b>=16 and b<=31) or (a==192 and b==168)) or false
 end
-function M.detect_ip()
-    local s=require('socket').udp()
+-- Use KOReader's platform-specific sockaddr declarations, including BSD's
+-- sa_len field. Enumerate addresses without shell commands or external traffic.
+function M.interface_ips()
+    local ffi=require('ffi')
+    require('ffi/posix_h')
+    local C,bit=ffi.C,require('bit')
+    local head=ffi.new('struct ifaddrs *[1]')
+    if C.getifaddrs(head)~=0 then return nil end
+    local ok,addresses=pcall(function()
+        local result,seen={},{}
+        local item=head[0]
+        while item~=nil do
+            -- IFF_POINTOPOINT is 0x10 on both BSD and Linux; KOReader's
+            -- generated headers do not expose a named constant for it.
+            if item.ifa_addr~=nil and item.ifa_addr.sa_family==C.AF_INET
+                and bit.band(item.ifa_flags,C.IFF_UP)~=0
+                and bit.band(item.ifa_flags,bit.bor(C.IFF_LOOPBACK,0x10))==0 then
+                local host=ffi.new('char[?]',C.NI_MAXHOST)
+                if C.getnameinfo(item.ifa_addr,ffi.sizeof('struct sockaddr_in'),host,C.NI_MAXHOST,
+                    nil,0,C.NI_NUMERICHOST)==0 then
+                    local ip=ffi.string(host)
+                    if M.private_ip(ip) and not seen[ip] then
+                        seen[ip]=true;result[#result+1]=ip
+                    end
+                end
+            end
+            item=item.ifa_next
+        end
+        return result
+    end)
+    C.freeifaddrs(head[0])
+    return ok and addresses or nil
+end
+local function route_ip(socket,target)
+    local s=socket.udp and socket.udp()
     if not s then return nil end
-    s:settimeout(0)
-    -- UDP connect only selects the outgoing interface; no datagram is sent.
-    local ok=s:setpeername('1.1.1.1',53)
-    local ip=ok and s:getsockname();s:close()
-    return M.private_ip(ip) and ip or nil
+    local ok,ip=pcall(function()
+        s:settimeout(0)
+        -- UDP connect only selects an interface; no datagram is sent.
+        if s:setpeername(target,53) then return s:getsockname() end
+    end)
+    s:close()
+    return ok and ip or nil
+end
+function M.detect_ip(socket)
+    socket=socket or require('socket')
+    local ip=route_ip(socket,'1.1.1.1')
+    if M.private_ip(ip) then return ip end
+    -- VPN/TUN routes may select a non-LAN source (e.g. 28.0.0.1). A single
+    -- active private interface is safe to use; ambiguous networks need an
+    -- explicit address instead of advertising an arbitrary QR-code endpoint.
+    local ok,addresses=pcall(M.interface_ips)
+    if ok and addresses and #addresses==1 then return addresses[1] end
+end
+function M.has_ip(address,socket)
+    if route_ip(socket,address)==address then return true end
+    local ok,addresses=pcall(M.interface_ips)
+    if ok then
+        for _,ip in ipairs(addresses or {}) do if ip==address then return true end end
+    end
+    return false
 end
 local function unform(s)
     if s:gsub('%%%x%x',''):find('%',1,true) then return nil end
@@ -34,13 +87,13 @@ function M.form(body)
     return values
 end
 function M.start(o)
-    local ip=o.ip or M.detect_ip()
-    if not M.private_ip(ip) then return nil,E.new('NETWORK','未找到局域网 IPv4 地址，请连接 Wi-Fi 或手动填写阅读器 IP') end
+    local socket=o.socket or require('socket')
+    local ip=o.ip or M.detect_ip(socket)
+    if not M.private_ip(ip) then return nil,E.new('NETWORK','无法确定局域网 IPv4 地址，请连接 Wi-Fi / 有线网络；如有 VPN 或多个网卡，请在“在阅读器配置应用”的局域网 IP 中填写本机 Wi-Fi / 有线网卡地址') end
     local random=o.random or Random.hex
     local token,e=random(24);if not token then return nil,e end
     local csrf,ce=random(16);if not csrf then return nil,ce end
     local state,se=random(16);if not state then return nil,se end
-    local socket=o.socket or require('socket')
     local listener=socket.tcp()
     if not listener then return nil,E.new('IO','无法创建临时授权服务') end
     listener:settimeout(0)
@@ -54,13 +107,7 @@ function M.start(o)
         on_code=o.on_code,on_config=o.on_config,on_stop=o.on_stop,on_tick=o.on_tick,schedule=o.schedule,unschedule=o.unschedule,
         state=o.on_config and 'configuring' or 'waiting',message='等待手机提交授权码',ip_check=o.ip_check},M)
     if not self.ip_check and socket.udp then
-        self.ip_check=function(address)
-            local s=socket.udp();if not s then return false end
-            s:settimeout(0)
-            local connected=s:setpeername(address,9)
-            local current=connected and s:getsockname();s:close()
-            return current==address
-        end
+        self.ip_check=function(address)return M.has_ip(address,socket)end
     end
     self.url='http://'..self.authority..self.path
     if o.on_config then
