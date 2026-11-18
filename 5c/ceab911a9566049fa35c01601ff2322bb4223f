@@ -1,0 +1,32 @@
+baidupansync.koplugin/spec/unit/lan_address_spec.lua
+  s_29cedbef3ff996::t_710cd92b861183 1-70
+baidupansync.koplugin/README.md
+  s_29cedbef3ff996::t_ec32362d6eb12a 3,241-248
+baidupansync.koplugin/modules/baidu_auth_server.lua
+  s_29cedbef3ff996::t_0888f18d789986 13-28,30-47,49-73,90-92,110
+  s_29cedbef3ff996::t_710cd92b861183 29
+README.md
+  s_29cedbef3ff996::t_6830f99508343f 7,28-29
+baidupansync.koplugin/_meta.lua
+  s_29cedbef3ff996::t_d932adb66a1514 5
+baidupansync.koplugin/main.lua
+  s_29cedbef3ff996::t_75f99213467ab6 2,24
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_29cedbef3ff996::t_baadc7654a1860 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "5cceab911a9566049fa35c01601ff2322bb4223f",
+  "prompts": {},
+  "sessions": {
+    "s_29cedbef3ff996": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ee60-caf6-7890-b764-dd71f3850999",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
