@@ -128,12 +128,28 @@ function M.library(result,on_download,page,on_show,on_close,state,on_delete,on_r
     UI:show(grid)
     return grid
 end
-function M.query(result)
-    if not result.remote then return Dialog.info(_('云端尚无当前书籍的阅读进度。')) end
-    local record=result.remote.record
-    Dialog.info(string.format('后端：%s\n云端位置：%s\n修订：%d\n设备：%s\n设备时间：%s',
-        result.backend,Dialog.percent_text(record.progress.percent),
-        record.sync.revision,record.sync.deviceId,record.sync.updatedAt))
+function M.query(result,context,actions)
+    actions=actions or {}
+    local record=result.remote and result.remote.record
+    local lines={'阅读进度对比','书籍：'..(context.book.title or context.book.file_name),
+        '后端：'..result.backend,'本机位置：'..Dialog.percent_text(context.progress.percent),
+        '云端位置：'..(record and Dialog.percent_text(record.progress.percent) or '尚无记录')}
+    if record then
+        lines[#lines+1]='云端设备：'..record.sync.deviceId
+        lines[#lines+1]='设备时间：'..record.sync.updatedAt
+    end
+    lines[#lines+1]='请选择同步方向，操作前会重新核对并确认。'
+    local dialog
+    local function select(action)return function()UI:close(dialog);if action then action()end end end
+    dialog=Buttons:new{title=table.concat(lines,'\n'),buttons={
+        {{text=_('上传本机进度 → 云端'),enabled=actions.upload~=nil,callback=select(actions.upload)}},
+        {{text=_('应用云端进度 → 本机'),enabled=record~=nil and actions.download~=nil,callback=select(actions.download)}},
+        {{text=_('刷新对比'),enabled=actions.refresh~=nil,callback=select(actions.refresh)},
+         {text=_('撤销上次应用'),enabled=actions.undo~=nil,callback=select(actions.undo)}},
+        {{text=_('返回'),callback=select()}},
+    }}
+    UI:show(dialog)
+    return dialog
 end
 function M.downloaded(result,open)
     local text='已下载并校验：'..result.path..'\n不会自动应用云端进度。'

@@ -4,8 +4,6 @@ local Actions=require('ui/menu')
 local _=require('gettext')
 local Home=Menu:extend{is_borderless=true,items_per_page=6}
 local sections={
-    progress={title=_('阅读进度'),hint=_('先查看云端进度，再选择上传或应用；应用后可撤销。'),
-        actions={'query_progress','upload_progress','download_progress','undo'}},
     settings={title=_('连接设置'),hint=_('配置 WebDAV 或百度网盘，验证连接并选择当前后端。'),
         actions={'configure','probe','baidu','switch_backend'}},
 }
@@ -36,19 +34,22 @@ function Home:items()
     actions.switch_backend.text=plugin.active_backend=='baidu' and _('当前后端：百度网盘 ›') or _('当前后端：WebDAV ›')
     actions.library.text=_('云端书库 · 下载书籍')
     actions.upload_book.text=_('上传当前书籍')
+    actions.query_progress.text=_('阅读进度 · 对比与同步')
     local items={}
     local section=sections[self.section]
     if section then
         items[1]={text=_('‹ 返回主页'),id='back',select_enabled=true,callback=function()self:openSection(nil)end}
         for _,id in ipairs(section.actions) do items[#items+1]=actions[id] end
     else
-        items={actions.library,actions.upload_book}
-        for _,id in ipairs({'progress','settings'}) do
+        items={actions.library,actions.upload_book,actions.query_progress}
+        for _,id in ipairs({'settings'}) do
             local target=id
             items[#items+1]={id=id,text=sections[id].title..' ›',select_enabled=true,
                 callback=function()self:openSection(target)end}
         end
         if not cloud_ready then items[4].text=_('连接设置 · 请先配置 ›') end
+        -- Undo is local and must remain reachable even while the cloud is offline.
+        if plugin:isCurrentBookSupported() and plugin:hasRestorePoint() then items[#items+1]=actions.undo end
         items[#items+1]={id='about',text=_('关于')..' · v'..self.plugin.version,select_enabled=true,
             callback=function()
                 require('ui/progress_dialog').info('BaiduPanSync\n'.._('书籍与阅读进度同步')..

@@ -37,7 +37,6 @@ describe('persistent plugin page',function()
             shown[#shown+1]=dialog;UI:show(dialog)
         end
         page:onMenuSelect(page.item_table[3])
-        page:onMenuSelect(page.item_table[2])
         assert.is_true(visible(page));assert.is_true(visible(shown[1]))
         UI:close(shown[1]);assert.is_equal(page,plugin.home_page);assert.is_true(visible(page))
     end)

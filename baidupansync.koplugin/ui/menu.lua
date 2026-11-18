@@ -11,7 +11,7 @@ function Menu.actions(plugin)
     local actions = {
             { text = _("上传当前阅读进度到云端"), callback = function() plugin:onUploadCloudProgress() end,
                 enabled_func = function() return plugin:isCurrentBookSupported() end },
-            { text = _("查询云端阅读进度"), callback = function() plugin:onQueryCloudProgress() end,
+            { text = _("阅读进度对比与同步"), callback = function() plugin:onQueryCloudProgress() end,
                 enabled_func = function() return plugin:isCurrentBookSupported() end },
             { text = _("下载并应用云端阅读进度"), callback = function() plugin:onDownloadCloudProgress() end,
                 enabled_func = function() return plugin:isCurrentBookSupported() end },

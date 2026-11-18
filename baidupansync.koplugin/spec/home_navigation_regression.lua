@@ -16,7 +16,7 @@ local calls={}
 local about
 package.loaded['ui/progress_dialog']={info=function(text,persistent)about={text=text,persistent=persistent}end}
 local plugin={ui={},dav_adapter={},dav_profile={},version='fixture-version',
-    isCurrentBookSupported=function()return true end,hasRestorePoint=function()return true end}
+    isCurrentBookSupported=function()return true end,hasRestorePoint=function()return false end}
 for _,method in ipairs({'onCloudLibrary','onUploadBook','onQueryCloudProgress','onUploadCloudProgress',
     'onDownloadCloudProgress','onUndoRestore'})do
     local name=method
@@ -29,24 +29,23 @@ assert(#page.item_table==5)
 select(5);assert(about.persistent and about.text:find(plugin.version,1,true) and not page.closed)
 select(1);assert(calls.onCloudLibrary==1)
 select(2);assert(calls.onUploadBook==1)
-select(3);assert(page.section=='progress' and #page.item_table==5)
-select(2);select(3);select(4);select(5)
-assert(calls.onQueryCloudProgress==1 and calls.onUploadCloudProgress==1)
-assert(calls.onDownloadCloudProgress==1 and calls.onUndoRestore==1)
-page:onClose();assert(not page.section and not page.closed)
+select(3);assert(not page.section and #page.item_table==5 and calls.onQueryCloudProgress==1)
+plugin.hasRestorePoint=function()return true end;page:refresh()
+assert(#page.item_table==6 and page.item_table[5].id=='undo')
+select(5);assert(calls.onUndoRestore==1)
+plugin.hasRestorePoint=function()return false end;page:refresh()
 select(4);assert(page.section=='settings' and #page.item_table==5)
 assert(page.item_table[2].select_enabled and page.item_table[3].select_enabled)
 plugin.dav_adapter=nil;page:refresh()
 assert(page.item_table[2].select_enabled and not page.item_table[3].select_enabled)
 select(1);assert(not page.item_table[1].select_enabled)
 plugin.dav_busy=true;page:refresh();select(2);assert(calls.onUploadBook==1)
-select(3);assert(page.section=='progress')
-select(3);assert(calls.onUploadCloudProgress==1)
+select(3);assert(not page.section and calls.onQueryCloudProgress==1)
 plugin.dav_busy=false;plugin.dav_adapter={}
 plugin.isCurrentBookSupported=function()return false end
 page:refresh()
-for i=2,5 do assert(not page.item_table[i].select_enabled)end
-page:onClose();page:onClose();assert(page.closed)
+for i=2,3 do assert(not page.item_table[i].select_enabled)end
+page:onClose();assert(page.closed)
 page.closed=false;page.section=nil;plugin.active_backend='baidu';plugin.dav_adapter=nil
 plugin.hasUsableBaidu=function()return true end;plugin.isCurrentBookSupported=function()return true end
 page:refresh();assert(page.item_table[1].select_enabled and page.item_table[2].select_enabled)

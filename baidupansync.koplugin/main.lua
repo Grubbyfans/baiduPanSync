@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.9.3: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.9.4: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.9.3"
+local VERSION = "0.9.4"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -280,7 +280,19 @@ function BaiduPanSync:_cloud(operation, entry)
             return Dialog.info('云端书籍、书库记录和云端进度已删除。本机文件与阅读位置保留。')
         end
         if e then return Dialog.error(e) end
-        if operation=="query" then return cloud_dialog.query(result)
+        if operation=="query" then
+            local function checked(action)return function()
+                local ok,err=opts.guard()
+                if ok then ok,err=self.progress:_check_context(context) end
+                if not ok then return Dialog.error(err) end
+                action()
+            end end
+            return cloud_dialog.query(result,context,{
+                upload=checked(function()self:onUploadCloudProgress()end),
+                download=checked(function()self:onDownloadCloudProgress()end),
+                refresh=checked(function()self:onQueryCloudProgress()end),
+                undo=self:hasRestorePoint() and checked(function()self:onUndoRestore()end) or nil,
+            })
         elseif operation=="download_book" then
             return cloud_dialog.downloaded(result,function(file)
                 self:closeHome()
