@@ -33,7 +33,9 @@ function M:_request(method,path,body,headers,done,transfer)
         username=self.username,password=self.password,cafile=self.cafile,progress_dir=self.progress_dir,
         task_progress=self.operation_opts and self.operation_opts.task_progress}
     for k,v in pairs(transfer or {}) do request[k]=v end
-    return self.transport(request,function(e,r)
+    local diagnostic=request.diagnostics or self.operation_opts and self.operation_opts.diagnostics
+    request.diagnostics=nil
+    return require('modules/diagnostics').observe(diagnostic,self.transport,request,function(e,r)
         if e then return done(e) end
         if not r or type(r.status)~='number' then return done(err(writing and 'UNCERTAIN' or 'NETWORK','无有效响应',writing)) end
         local code=r.status
@@ -124,7 +126,7 @@ function M:download(path,destination,progress,done,opts)
     if type(destination)=='function' then done=destination;destination=nil end
     done=done or function() end
     if not destination then
-        return self:_request('GET',path,nil,nil,function(e,r) done(e,r and r.body) end,{max_bytes=path=='library.json' and 4*1024*1024 or 65536})
+        return self:_request('GET',path,nil,nil,function(e,r) done(e,r and r.body) end,{max_bytes=path=='library.json' and 4*1024*1024 or 65536,diagnostics=opts and opts.diagnostics})
     end
     local attr=require('libs/libkoreader-lfs').symlinkattributes(destination)
     if type(destination)~='string' or destination:sub(-5)~='.part' or not attr or attr.mode~='file' or attr.size~=0 then
@@ -134,7 +136,7 @@ function M:download(path,destination,progress,done,opts)
         if not e and progress then pcall(progress,r.size,r.size) end
         done(e,r)
     end,{download_path=destination,max_bytes=opts and opts.max_bytes or 1024*1024*1024,
-        progress_title=opts and opts.progress_title,wait_message=opts and opts.wait_message})
+        progress_title=opts and opts.progress_title,wait_message=opts and opts.wait_message,diagnostics=opts and opts.diagnostics})
 end
 function M:upload(path,local_file,progress,done,opts)
     opts=opts or {}

@@ -95,14 +95,22 @@ for _,n in ipairs({20,100})do
     c.backend:invalidate_link('library.json')
     local primed
     c.backend:download('library.json',function(e,v)assert(not e);primed=v end);assert(primed)
+    local diagnostic=require('modules/diagnostics').new{version='test',operation='upload_book',backend='baidu'}
+    diagnostic:stage('upload');c.backend.operation_opts.diagnostics=diagnostic
     remote.calls={}
     local result=run(c,'upload_book',context,options);assert(not result.e,result.e and result.e.message)
     assert(#remote.calls==12,'expected 12 warm HTTP requests, got '..#remote.calls)
+    local metrics=diagnostic:finish('success')
+    assert(metrics.request_count==#remote.calls and metrics.cache_hits.download_link==1)
     assert(#result.value.library.entries==n+1)
     for _,call in ipairs(remote.calls)do assert(call.method~='list','warm upload must not enumerate directories')end
     c.backend:invalidate_link('library.json');remote.calls={}
+    diagnostic=require('modules/diagnostics').new{version='test',operation='upload_book',backend='baidu'}
+    c.backend.operation_opts.diagnostics=diagnostic
     result=run(c,'upload_book',context,options);assert(not result.e,result.e and result.e.message)
     assert(#remote.calls==14,'expected 14 cold HTTP requests, got '..#remote.calls)
+    metrics=diagnostic:finish('success');assert(metrics.request_count==14 and metrics.cache_misses.download_link==1)
+    c.backend.operation_opts.diagnostics=nil
     print('Baidu '..n..' books + 10 MiB: warm=12, cold=14 HTTP requests')
 end
 -- Every browse reads library.json only, with one GET on a valid cached link.

@@ -41,6 +41,7 @@ package.loaded['ui/cloud_dialog']={library=function(result,download,page,on_show
     on_show(grid);return grid
 end}
 local Plugin=dofile('baidupansync.koplugin/main.lua')
+Plugin._saveDiagnostic=function()end
 local plugin=setmetatable({active_backend='webdav',dav_adapter={backend_id='backend',root='fixture'},settings_dir='/fixture',
     refreshHome=function()end,_hash_opts=function()return {is_cancelled=function()return false end}end,
     progress={capture=function()error('library/repair must not require a local document')end}}, {__index=Plugin})
@@ -79,7 +80,7 @@ cache.load_cover=function(_,_,record)
 end
 cache.save_cover=function(_,_,record,cover)covers[record.bookId]={version=record.coverVersion,cover=cover}end
 package.loaded['modules/book_cover'].decode=function(value)return value=='cover' and value end
-plugin.dav_adapter.download=function(_,path,cb)
+plugin.dav_adapter.download=function(_,path,_,_,cb)
     cover_gets=cover_gets+1;cb(nil,'{"coverPng":"cover"}')
 end
 local one={record={bookId='one',coverPath='covers/one.json',coverVersion='1'}}

@@ -27,7 +27,7 @@ function M.request(opts,done)
     for _,key in ipairs({'upload_path','upload_offset','upload_size','upload_prefix','upload_suffix',
         'expected_sha256','download_path','progress_dir'}) do req[key]=opts[key] end
     req.wait_message='正在访问百度网盘（点击可取消）…'
-    return transport(req,function(e,r)
+    return require('modules/diagnostics').observe(opts.diagnostics,transport,req,function(e,r)
         if e then return done(e) end
         if not r or r.status~=200 then
             return done(Errors.new(opts.writing and 'UNCERTAIN' or 'NETWORK',

@@ -44,7 +44,7 @@ function M:authorized()
     if type(p.access_token)~='string' or p.access_token=='' or type(p.expires_at)~='number'
         or self.now()>=p.expires_at-30 then fail('AUTH','百度授权缺失或已过期，请重新授权') end
 end
-function M:request(endpoint,method,params,body,writing,headers)
+function M:request(endpoint,method,params,body,writing,headers,diagnostics)
     self:authorized()
     local operation=self.operation_opts
     if operation and operation.guard then A.check(operation.guard()) end
@@ -53,7 +53,7 @@ function M:request(endpoint,method,params,body,writing,headers)
     return A.call(function(done)H.request({transport=self.transport,cafile=self.profile.cafile,
         url=endpoint..'?'..H.form(params),method=method,body=body,writing=writing,
         headers=headers or {['User-Agent']='pan.baidu.com',['Content-Type']='application/x-www-form-urlencoded'},
-        task_progress=operation and operation.task_progress},done)end)
+        task_progress=operation and operation.task_progress,diagnostics=diagnostics or operation and operation.diagnostics},done)end)
 end
 function M:user_info(done)
     A.run(function()
@@ -71,13 +71,13 @@ function M:ensureAuthorized(done)
         return info
     end,done)
 end
-function M:list(relative,continuation,done)
+function M:list(relative,continuation,done,diagnostics)
     A.run(function()
         local dir=self:path(relative)
         local start=continuation or 0
         if type(start)~='number' or start<0 or start%1000~=0 or start>100000 then fail('INVALID_INPUT','百度枚举页码无效') end
         local v=self:request('https://pan.baidu.com/rest/2.0/xpan/file','GET',
-            {method='list',dir=dir,start=start,limit=1000,order='name'})
+            {method='list',dir=dir,start=start,limit=1000,order='name'},nil,false,nil,diagnostics)
         if type(v.list)~='table' or #v.list>1000 then fail('INVALID_INPUT','百度枚举结果无效') end
         local entries={}
         for _,item in ipairs(v.list) do
@@ -92,18 +92,18 @@ function M:list(relative,continuation,done)
         return {entries=entries,continuation=#v.list==1000 and start+1000 or nil}
     end,done)
 end
-function M:stat(relative,done)
+function M:stat(relative,done,diagnostics)
     A.run(function()
         local full=self:path(relative)
         if full==self.root then
-            A.call(function(cb)self:list('',nil,cb)end)
+            A.call(function(cb)self:list('',nil,cb,diagnostics)end)
             return {type='directory',size=0}
         end
         local clean=relative:gsub('/+$','')
         local parent=clean:match('^(.*)/[^/]+$') or ''
         local page
         repeat
-            local v=A.call(function(cb)self:list(parent,page,cb)end)
+            local v=A.call(function(cb)self:list(parent,page,cb,diagnostics)end)
             for _,entry in ipairs(v.entries) do if entry.path==clean then return entry end end
             page=v.continuation
         until not page
@@ -206,7 +206,8 @@ function M:upload(relative,file,progress,done,opts)
                     upload_prefix='--'..boundary..'\r\nContent-Disposition: form-data; name="file"; filename="book.epub"\r\n'..
                         'Content-Type: application/octet-stream\r\n\r\n',upload_suffix='\r\n--'..boundary..'--\r\n',
                     progress_dir=self.progress_dir,task_progress=self.operation_opts and self.operation_opts.task_progress,
-                    task_transfer_offset=completed,task_transfer_total=plan.size},cb)end)
+                    task_transfer_offset=completed,task_transfer_total=plan.size,
+                    diagnostics=self.operation_opts and self.operation_opts.diagnostics},cb)end)
                 if slice.md5~=plan.blocks[index+1] then fail('CONFLICT','百度 EPUB 分片摘要不一致，未提交文件') end
                 completed=completed+part.size
                 if progress then progress(completed,plan.size) end
@@ -245,22 +246,24 @@ function M:download(relative,destination,progress,done,opts)
     A.run(function()
         self:authorized()
         local max=opts.max_bytes or (destination and 1024*1024*1024 or relative=='library.json' and 4*1024*1024 or 65536)
+        local diagnostic=opts.diagnostics or self.operation_opts and self.operation_opts.diagnostics
         local cached=self.links[relative]
         for attempt=1,2 do
             local link=cached
+            if diagnostic then diagnostic:cache('download_link',link and link.dlink and self.now()<(link.expires_at or 0))end
             if not link or not link.dlink or self.now()>=(link.expires_at or 0) then
                 local st
                 if link and link.fs_id then st=link
-                else st=A.call(function(cb)self:stat(relative,cb)end) end
+                else st=A.call(function(cb)self:stat(relative,cb,diagnostic)end) end
                 local endpoint='https://pan.baidu.com/rest/2.0/xpan/multimedia'
                 local e,v=A.await(function(cb)A.run(function()
-                    return self:request(endpoint,'GET',{method='filemetas',dlink=1,fsids='['..st.fs_id..']'})
+                    return self:request(endpoint,'GET',{method='filemetas',dlink=1,fsids='['..st.fs_id..']'},nil,false,nil,diagnostic)
                 end,cb)end)
                 if e and e.code=='NOT_FOUND' and link and link.fs_id then
                     -- A same-path replacement can get a new file ID.
                     self:invalidate_link(relative)
-                    st=A.call(function(cb)self:stat(relative,cb)end)
-                    v=self:request(endpoint,'GET',{method='filemetas',dlink=1,fsids='['..st.fs_id..']'})
+                    st=A.call(function(cb)self:stat(relative,cb,diagnostic)end)
+                    v=self:request(endpoint,'GET',{method='filemetas',dlink=1,fsids='['..st.fs_id..']'},nil,false,nil,diagnostic)
                 elseif e then error(e,0) end
                 local item=type(v.list)=='table' and v.list[1]
                 if not item or item.path~=self:path(relative) or tostring(item.fs_id)~=st.fs_id
@@ -277,7 +280,7 @@ function M:download(relative,destination,progress,done,opts)
             for redirect=1,4 do
                 if not trusted(url) then fail('TLS','百度下载地址不是可信 HTTPS 地址') end
                 local e,r=A.await(function(cb)
-                    (self.transport or require('modules/dav_transport').request)({url=token_url(url,self.profile.access_token),method='GET',cafile=self.profile.cafile,
+                    require('modules/diagnostics').observe(diagnostic,self.transport or require('modules/dav_transport').request,{url=token_url(url,self.profile.access_token),method='GET',cafile=self.profile.cafile,
                         headers={['User-Agent']='pan.baidu.com'},max_bytes=max,download_path=destination,
                         reset_download=destination~=nil,progress_dir=destination and self.progress_dir or nil,
                         task_progress=self.operation_opts and self.operation_opts.task_progress,

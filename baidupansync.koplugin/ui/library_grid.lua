@@ -134,7 +134,7 @@ end
 function Grid:options()
     local dialog
     local pending_count=#Issues.collect(self.result)
-    dialog=Buttons:new{title=_('书库选项'),buttons={
+    local buttons={
         {{text=_('按书名排序'),callback=function()
             UI:close(dialog);self.state.order='name';self.page=1;self:rebuild()
         end}},
@@ -159,7 +159,13 @@ function Grid:options()
             require('ui/progress_dialog').info(table.concat(lines,'\n'))
         end}},
         {{text=_('关闭'),callback=function()UI:close(dialog)end}},
-    }}
+    }
+    if self.result.on_diagnostics then
+        table.insert(buttons,#buttons,{{text='最近任务诊断',callback=function()
+            UI:close(dialog);if not self.closed then self.result.on_diagnostics()end
+        end}})
+    end
+    dialog=Buttons:new{title=_('书库选项'),buttons=buttons}
     UI:show(dialog)
 end
 

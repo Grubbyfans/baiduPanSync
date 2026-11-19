@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.10.4: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.10.5: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.10.4"
+local VERSION = "0.10.5"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -177,6 +177,18 @@ function BaiduPanSync:_connectionActions(mode,auth)
     end}}
 end
 
+function BaiduPanSync:_saveDiagnostic(tracker,result)
+    local record=tracker:finish(result)
+    local ok,saved=pcall(require('modules/diagnostics').save,self.settings_dir,record)
+    if not ok or not saved then require('logger').warn('BaiduPanSync: diagnostic summary could not be saved')end
+end
+function BaiduPanSync:onShowDiagnostics()
+    local Diagnostics=require('modules/diagnostics')
+    local tasks,e=Diagnostics.read(self.settings_dir)
+    if not tasks then return Dialog.error(e)end
+    UIManager:show(require('ui/widget/textviewer'):new{title='最近任务诊断',text=Diagnostics.format(tasks)})
+end
+
 function BaiduPanSync:_localBooks()
     return require('modules/local_books'):new{dir=self.settings_dir}
 end
@@ -201,11 +213,13 @@ function BaiduPanSync:onCheckLocalBooks()
     local ok,root=pcall(require('modules/local_library').root,G_reader_settings:readSetting('home_dir'))
     if not ok then return Dialog.error(root)end
     self.local_scan_busy=true
+    local diagnostic=require('modules/diagnostics').new{version=VERSION,operation='local_scan',backend='local'}
+    diagnostic:stage('scanning')
     local progress=Dialog.start_scan_progress()
     self:_localBooks():scan(root,{schedule=function(cb)UIManager:scheduleIn(0,cb)end,
         is_cancelled=function()return progress:is_cancelled()end,
         get_home=function()return G_reader_settings:readSetting('home_dir')end},function(e,index)
-        progress:close();self.local_scan_busy=false;self:_refreshLocalBooks()
+        progress:close();self.local_scan_busy=false;self:_saveDiagnostic(diagnostic,e and e.code or 'success');self:_refreshLocalBooks()
         if e then return Dialog.result('本机书籍检查未完成',e.message)end
         local count=0;for _ in pairs(index.books)do count=count+1 end
         Dialog.info('本机书籍检查完成：'..count..' 本，书名均唯一。')
@@ -293,13 +307,17 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         on_transfer=function(count,total)tracker:report(count,total)end,
         task_progress=tracker,
     } or self:_hash_opts()
+    local diagnostic=require('modules/diagnostics').new{version=VERSION,operation=operation,backend=mode}
+    diagnostic:stage('preparing');opts.diagnostics=diagnostic
     local logger=require('logger')
     logger.info('BaiduPanSync',VERSION,mode,operation,'start',context and context.book.size or 0)
     opts.on_state=function(state)
+        diagnostic:stage(state)
         logger.info('BaiduPanSync',VERSION,mode,operation,'state',state)
         if tracker then tracker:state(state)end
     end
     opts.on_phase=function(phase)
+        diagnostic:stage(phase)
         logger.info('BaiduPanSync',VERSION,mode,operation,'phase',phase)
         if tracker then tracker:phase(phase)end
     end
@@ -346,18 +364,22 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         result.pending_publications=pending and #pending or 0
         result.on_recover_publications=function()self:_showPublicationRecovery(backend.backend_id)end
         result.backend_label=backend_label
+        result.on_diagnostics=function()self:onShowDiagnostics()end
         result.load_covers=function(grid)
             if grid.cover_loading then return end
             grid.cover_loading=true
             local page=grid.page
+            local cover_diagnostic=require('modules/diagnostics').new{version=VERSION,operation='covers',backend=mode}
+            cover_diagnostic:stage('loading_covers')
             require('modules/async').run(function()
                 for _,selected in ipairs(grid.visible_entries or {}) do
                     if grid.closed then break end
                     local record=selected.record
                     if record.coverPath and not selected.coverPng then
                         local cover=cache:load_cover(backend.backend_id,record)
+                        cover_diagnostic:cache('cover',cover~=nil)
                         if not cover then
-                            local err,raw=require('modules/async').await(function(cb)backend:download(record.coverPath,cb)end)
+                            local err,raw=require('modules/async').await(function(cb)backend:download(record.coverPath,nil,nil,cb,{diagnostics=cover_diagnostic})end)
                             if not err and type(raw)=='string' then
                                 local ok,value=pcall(require('json').decode,raw)
                                 if ok and type(value)=='table' and require('modules/book_cover').decode(value.coverPng) then
@@ -368,7 +390,8 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
                         if cover then selected.coverPng=cover end
                     end
                 end
-            end,function()
+            end,function(e)
+                self:_saveDiagnostic(cover_diagnostic,e and e.code or 'success')
                 grid.cover_loading=false
                 if not grid.closed and grid.result==result then
                     grid:rebuild(true)
@@ -388,9 +411,12 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
             nil)
         return view
     end
+    diagnostic:cache('library',cached and not force_refresh and cache:fresh(cached))
     if cached and not force_refresh and cache:fresh(cached) then
         self.dav_busy=false;backend.operation_opts=nil
-        return show_library(cached)
+        local shown=show_library(cached)
+        self:_saveDiagnostic(diagnostic,'success')
+        return shown
     end
     if cached then cached.refreshing=true;show_library(cached) end
     local function checked(action,needs_book)return function()
@@ -426,6 +452,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         if tracker then tracker:close()end
         if backend.operation_opts==opts then backend.operation_opts=nil end
         self.dav_busy=false
+        self:_saveDiagnostic(diagnostic,e and e.code or 'success')
         if e then logger.warn('BaiduPanSync',VERSION,mode,operation,'finished',e.code,e.message)
         else logger.info('BaiduPanSync',VERSION,mode,operation,'finished','success') end
         if result and result.library then
