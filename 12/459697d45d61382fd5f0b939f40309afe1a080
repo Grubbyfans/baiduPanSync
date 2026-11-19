@@ -1,0 +1,45 @@
+baidupansync.koplugin/modules/cloud_service.lua
+  s_e3b637e15ec5a8::t_07d2f944b28a4b 253-258,262,264-265,283-286
+baidupansync.koplugin/ui/library_grid.lua
+  s_e3b637e15ec5a8::t_07d2f944b28a4b 177,179-181,183,186,188-193,205,223,266-268
+  s_e3b637e15ec5a8::t_01d8c90e1e80d0 173-176,182,184-185,187
+baidupansync.koplugin/README.md
+  s_e3b637e15ec5a8::t_cb282890dc8770 3,97-106
+README.md
+  s_e3b637e15ec5a8::t_cb282890dc8770 7,16,91-100
+baidupansync.koplugin/ui/cloud_dialog.lua
+  s_e3b637e15ec5a8::t_07d2f944b28a4b 102
+baidupansync.koplugin/modules/local_books.lua
+  s_e3b637e15ec5a8::t_2d6d86eff4714c 1-13,15-129,131-140
+  s_e3b637e15ec5a8::t_dc5caf5df7dba0 14,130
+baidupansync.koplugin/main.lua
+  s_e3b637e15ec5a8::t_cb282890dc8770 209
+  s_e3b637e15ec5a8::t_07d2f944b28a4b 180-208,210-227,229-232,234-240,242,316,324,437
+  s_e3b637e15ec5a8::t_2025d5cfc0a7af 2,24,228,233
+baidupansync.koplugin/_meta.lua
+  s_e3b637e15ec5a8::t_936b68ffd0a648 5
+baidupansync.koplugin/spec/library_flow_regression.lua
+  s_e3b637e15ec5a8::t_382e7b4847c5fd 15-16
+baidupansync.koplugin/spec/unit/cloud_service_spec.lua
+  s_e3b637e15ec5a8::t_bb2af51f1981a9 144-161
+baidupansync.koplugin/spec/unit/local_books_spec.lua
+  s_e3b637e15ec5a8::t_bb0e36af7f39cc 1-88
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_e3b637e15ec5a8::t_2292172bbb4e14 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12459697d45d61382fd5f0b939f40309afe1a080",
+  "prompts": {},
+  "sessions": {
+    "s_e3b637e15ec5a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f192-302e-7f80-8839-33fd30aff075",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
