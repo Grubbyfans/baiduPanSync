@@ -12,7 +12,8 @@ package.loaded['ui/event']={};package.loaded['ffi/util']={};package.loaded.gette
 for _,name in ipairs({'book_identity','config_store','storage','progress','sync_state'})do package.loaded['modules/'..name]={}end
 package.loaded['ui/menu']={};package.loaded.logger={info=function()end,warn=function()end}
 package.loaded['modules/book_cover']={extract=function()end}
-package.loaded['modules/local_library']={}
+package.loaded['modules/local_library']={root=function()return '/books'end}
+package.loaded['modules/local_books']={new=function()return {load=function()return nil end}end}
 package.loaded['ui/task_progress']={new=function()return {
     state=function()end,phase=function()end,close=function()end,is_cancelled=function()return false end,
     hash_start=function()end,report=function()end,set_stage=function()end,

@@ -170,19 +170,27 @@ end
 function Grid:details(entry)
     local dialog
     local r=entry.record
-    dialog=Buttons:new{title=self.title_for(r)..'\n\n文件：'..Meta.filename(r)..
-        string.format('\n大小：%.2f MiB\n版本：%s',r.size/1048576,r.bookId:sub(1,12))..
-        (entry.incomplete and '\n云端 EPUB 缺失或大小不符。可删除剩余记录，或重新上传原书恢复。' or ''),buttons={
-        {{text=_('下载书籍'),enabled=not entry.incomplete and self.on_download~=nil,callback=function()
+    local text=self.title_for(r)..'\n\n文件：'..Meta.filename(r)..string.format('\n大小：%.2f MiB',r.size/1048576)
+    if entry.incomplete then text=text..'\n云端 EPUB 缺失或大小不符。'end
+    if entry.local_path then text=text..'\n本机已存在：'..entry.local_path end
+    local buttons={{{text=entry.local_path and _('重新下载') or _('下载书籍'),
+        enabled=not entry.incomplete and self.on_download~=nil,callback=function()
             UI:close(dialog)
-            if not self.closed and not entry.incomplete and self.on_download then self.on_download(entry) end
-        end}},
-        {{text=_('删除云端书籍'),enabled=self.on_delete~=nil,callback=function()
-            UI:close(dialog)
-            if not self.closed and self.on_delete then self.on_delete(entry) end
-        end}},
-        {{text=_('返回书库'),callback=function()UI:close(dialog)end}},
-    }}
+            if not self.closed and not entry.incomplete and self.on_download then self.on_download(entry)end
+        end}}}
+    if entry.local_path then
+        buttons[#buttons+1]={{text='打开书籍',callback=function()
+            UI:close(dialog);if not self.closed and self.result.on_open_local then self.result.on_open_local(entry)end
+        end}}
+        buttons[#buttons+1]={{text='删除本机书籍',callback=function()
+            UI:close(dialog);if not self.closed and self.result.on_delete_local then self.result.on_delete_local(entry)end
+        end}}
+    end
+    buttons[#buttons+1]={{text=_('删除云端书籍'),enabled=self.on_delete~=nil,callback=function()
+        UI:close(dialog);if not self.closed and self.on_delete then self.on_delete(entry)end
+    end}}
+    buttons[#buttons+1]={{text=_('返回书库'),callback=function()UI:close(dialog)end}}
+    dialog=Buttons:new{title=text,buttons=buttons}
     UI:show(dialog)
     return true
 end
@@ -194,6 +202,7 @@ function Grid:cell(entry,layout)
     local cover_h=math.max(20,h-caption_h-layout.gap)
     local cover_w=math.max(20,math.min(w-4,math.floor(cover_h*0.72)))
     local title=self.title_for(entry.record)
+    local caption=self.result.on_check_local and ((entry.local_path and '本机已存在' or '下载')..'\n'..title) or title
     if entry.incomplete then title='[待处理] '..title end
     local cover
     local ok,bb=pcall(Cover.render,entry.coverPng or entry.record.coverPng)
@@ -211,7 +220,7 @@ function Grid:cell(entry,layout)
         Center:new{dimen=Geom:new{w=w,h=cover_h},cover},
         VSpan:new{width=layout.gap},
         Center:new{dimen=Geom:new{w=w,h=caption_h},
-            Text:new{text=title,face=Font:getFace('cfont',fontsize),width=w-4,height=caption_h,
+            Text:new{text=caption,face=Font:getFace('cfont',fontsize),width=w-4,height=caption_h,
                 alignment='center',height_overflow_show_ellipsis=true}},
     }
     local cell=InputContainer:new{dimen=Geom:new{w=w,h=h},content}
@@ -253,6 +262,9 @@ function Grid:build()
     if self.on_switch_backend then
         toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('切换后端'),
             callback=function()if not self.closed then self.on_switch_backend()end end}
+    end
+    if self.result.on_check_local then
+        toolbar_buttons[#toolbar_buttons+1]={{text='检查本机书籍',callback=function()if not self.closed then self.result.on_check_local()end end}}
     end
     self.toolbar_buttons=toolbar_buttons
     local toolbar=ButtonTable:new{width=w,buttons=toolbar_buttons}

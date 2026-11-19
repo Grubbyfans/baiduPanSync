@@ -99,7 +99,7 @@ function M.confirm(info,done)
         lines[#lines+1]=info.no_replace_other and '百度不提供已验证的原子条件删除；不同内容的同名书籍请重命名保留两本。'
             or '不同内容覆盖会发布新 bookId 并撤下选中的旧书库条目；旧 EPUB 和进度保留，不迁移。'
     end
-    buttons[#buttons+1]={{text=_('重命名'),callback=function()UI:close(dialog);rename(info.filename,done)end}}
+    if not info.unique_local then buttons[#buttons+1]={{text=_('重命名'),callback=function()UI:close(dialog);rename(info.filename,done)end}}end
     buttons[#buttons+1]={{text=_('跳过 / 取消'),callback=function()UI:close(dialog);done('cancel')end}}
     dialog=Buttons:new{title=table.concat(lines,'\n\n'),buttons=buttons,dismissable=false,rows_per_page=4}
     UI:show(dialog)

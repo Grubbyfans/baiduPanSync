@@ -250,13 +250,19 @@ function M:download_book(entry,opts,done)
         local root=Local.root(o.home_dir)
         self:step('reading_remote')
         local filename=record.fileName
-        local matches=Local.scan(root,filename,self.identity,o)
+        local matches
+        if o.local_index then
+            local found=o.local_index:find(root,record.bookId)
+            matches=found and {found} or {}
+        else matches=Local.scan(root,filename,self.identity,o) end
+        if #matches>1 then fail('CONFLICT','发现同名本机书籍，请删除重复文件后重新检查本机书籍')end
         local target,expected=root..'/'..filename,nil
         if #matches>0 then
             self:step('awaiting_confirm')
-            local decision=self:confirm({kind='download_book',backend=self.backend.root,record=record,filename=filename,candidates=matches},o)
+            local decision=self:confirm({kind='download_book',backend=self.backend.root,record=record,filename=filename,candidates=matches,unique_local=o.local_index~=nil},o)
             if type(decision)~='table' then fail('CANCELLED','已取消下载') end
-            if decision.mode=='rename' then target=root..'/'..A.check(Name.filename(decision.name))
+            if decision.mode=='rename' and o.local_index then fail('INVALID_INPUT','同名书籍只允许覆盖已登记位置，不允许另存产生重复')
+            elseif decision.mode=='rename' then target=root..'/'..A.check(Name.filename(decision.name))
             elseif decision.mode=='overwrite' then
                 for _,v in ipairs(matches) do if v.path==decision.path then target=v.path;expected=v end end
                 if not expected then fail('INVALID_INPUT','请选择展示的本地文件') end
@@ -274,6 +280,10 @@ function M:download_book(entry,opts,done)
         self:step('committing_local')
         local result=Local.install(temp,target,expected,o.current_path and o.current_path())
         if self.identity then self.identity:invalidate(target) end
+        if o.local_index then
+            local saved,e=o.local_index:register(root,record.bookId,target)
+            if not saved then fail('UNCERTAIN','文件已下载，但本机索引保存失败，请重新检查本机书籍：'..e.message,'uncertain')end
+        end
         result.record=record
         return result
     end,done)

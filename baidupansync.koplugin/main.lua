@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.10.1: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.10.2: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.10.1"
+local VERSION = "0.10.2"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -177,8 +177,69 @@ function BaiduPanSync:_connectionActions(mode,auth)
     end}}
 end
 
+function BaiduPanSync:_localBooks()
+    return require('modules/local_books'):new{dir=self.settings_dir}
+end
+function BaiduPanSync:_attachLocalBooks(result)
+    local ok,root=pcall(require('modules/local_library').root,G_reader_settings:readSetting('home_dir'))
+    local index,e
+    if ok then index,e=self:_localBooks():load(root)end
+    result.local_index_error=e and e.message or nil
+    for _,entry in ipairs(result.entries or {})do
+        entry.local_path=index and index.books[entry.record.bookId] and index.books[entry.record.bookId].path or nil
+    end
+    result.on_check_local=function()self:onCheckLocalBooks()end
+    result.on_open_local=function(entry)self:_localBookAction(entry,false)end
+    result.on_delete_local=function(entry)self:_localBookAction(entry,true)end
+end
+function BaiduPanSync:_refreshLocalBooks()
+    local grid=self.library_dialog
+    if grid and not grid.closed then self:_attachLocalBooks(grid.result);grid:rebuild(true)end
+end
+function BaiduPanSync:onCheckLocalBooks()
+    if self.dav_busy or self.undo_busy or self.baidu_busy or self.local_scan_busy then return Dialog.info('已有任务正在进行，请稍候。')end
+    local ok,root=pcall(require('modules/local_library').root,G_reader_settings:readSetting('home_dir'))
+    if not ok then return Dialog.error(root)end
+    self.local_scan_busy=true
+    local progress=Dialog.start_scan_progress()
+    self:_localBooks():scan(root,{schedule=function(cb)UIManager:scheduleIn(0,cb)end,
+        is_cancelled=function()return progress:is_cancelled()end,
+        get_home=function()return G_reader_settings:readSetting('home_dir')end},function(e,index)
+        progress:close();self.local_scan_busy=false;self:_refreshLocalBooks()
+        if e then return Dialog.result('本机书籍检查未完成',e.message)end
+        local count=0;for _ in pairs(index.books)do count=count+1 end
+        Dialog.info('本机书籍检查完成：'..count..' 本，书名均唯一。')
+    end)
+end
+function BaiduPanSync:_localBookAction(entry,deleting)
+    if self.dav_busy or self.undo_busy or self.baidu_busy or self.local_scan_busy then return Dialog.info('已有任务正在进行，请稍候。')end
+    local ok,root=pcall(require('modules/local_library').root,G_reader_settings:readSetting('home_dir'))
+    if not ok then return Dialog.error(root)end
+    local store=self:_localBooks()
+    local found,book=pcall(store.find,store,root,entry.record.bookId)
+    if not found then return Dialog.error(book)end
+    if not book then self:_refreshLocalBooks();return Dialog.info('本机文件已不存在，已移除标记。')end
+    if not deleting then
+        self:closeHome();return require('apps/reader/readerui'):showReader(book.path)
+    end
+    local Confirm=require('ui/widget/confirmbox')
+    UIManager:show(Confirm:new{title='删除本机书籍',text='将删除本机 EPUB：\n'..book.path..'\n\n云端书籍、阅读进度和本机阅读设置保留。',
+        ok_text='删除本机书籍',cancel_text='取消',ok_callback=function()
+            if self.dav_busy or self.undo_busy or self.baidu_busy or self.local_scan_busy then return Dialog.info('已有任务正在进行，请稍候。')end
+            local valid,current_root=pcall(require('modules/local_library').root,G_reader_settings:readSetting('home_dir'))
+            if not valid or current_root~=root then return Dialog.info('根目录已变化，请重新检查本机书籍。')end
+            local reader=require('apps/reader/readerui').instance
+            local document=reader and reader.document or (self.ui and self.ui.document)
+            local called,value,e=pcall(store.delete,store,root,entry.record.bookId,document and document.file,book.path)
+            self:_refreshLocalBooks()
+            if not called then return Dialog.error(value)end
+            if not value then return Dialog.error(e)end
+            Dialog.info('已删除本机书籍：\n'..value.path)
+        end})
+end
+
 function BaiduPanSync:_cloud(operation, entry, force_refresh)
-    if self.dav_busy or self.undo_busy or self.baidu_busy then return Dialog.info("已有任务正在进行，请稍候。") end
+    if self.dav_busy or self.undo_busy or self.baidu_busy or self.local_scan_busy then return Dialog.info("已有任务正在进行，请稍候。") end
     local mode=self.active_backend or 'webdav'
     local backend
     if mode=='baidu' then
@@ -252,7 +313,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         local document=reader and reader.document or self.ui.document
         return document and document.file
     end
-    opts.backup_metadata=require("modules/local_library").backup_metadata
+    opts.local_index=self:_localBooks()
     backend.operation_opts=opts
     self.dav_busy=true
     local cache=require('modules/library_cache'):new(self.settings_dir..'/cache')
@@ -260,6 +321,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
     local view=self.library_dialog
     if view and (view.closed or view.result.backend_id~=backend.backend_id) then view=nil end
     local function show_library(result)
+        self:_attachLocalBooks(result)
         result.backend_label=backend_label
         result.load_covers=function(grid)
             if grid.cover_loading then return end
@@ -372,6 +434,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
                 undo=self:hasRestorePoint() and checked(function()self:onUndoRestore()end,true) or nil,
             })
         elseif operation=="download_book" then
+            self:_refreshLocalBooks()
             return cloud_dialog.downloaded(result,function(file)
                 self:closeHome()
                 require("apps/reader/readerui"):showReader(file)

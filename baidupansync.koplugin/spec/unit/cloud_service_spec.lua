@@ -141,6 +141,24 @@ describe('single-writer name-based catalog',function()
         assert.is_nil(r.e);assert.is_equal('old local bytes',read(r.value.backup))
         assert.is_equal('keep reading position',read(settings))
     end)
+    it('downloads only to the registered path and updates the local index without rescanning',function()
+        local Store=require('modules/local_books');local local_index=Store:new{dir=root..'/local-state'}
+        local scanned
+        local_index:scan(root..'/downloads',{schedule=function(cb)cb()end},function(e,v)assert.is_nil(e);scanned=v end)
+        assert.is_truthy(scanned)
+        local entry=published()
+        local opts=options{local_index=local_index}
+        local r=run('download_book',entry,opts);assert.is_nil(r.e)
+        assert.is_equal(r.value.path,local_index:load(root..'/downloads').books.same.path)
+        local original=require('modules/local_library').scan
+        require('modules/local_library').scan=function()error('must not scan on download')end
+        opts.confirm=function(info,cb)assert.is_true(info.unique_local);cb{mode='overwrite',path=info.candidates[1].path}end
+        r=run('download_book',entry,opts)
+        require('modules/local_library').scan=original
+        assert.is_nil(r.e)
+        opts.confirm=function(_,cb)cb{mode='rename',name='duplicate.epub'}end
+        assert.is_equal('INVALID_INPUT',run('download_book',entry,opts).e.code)
+    end)
     it('rejects truncated downloads and covering the currently open book',function()
         local entry=published();backend.files[entry.record.path]='short'
         assert.is_equal('INVALID_INPUT',run('download_book',entry,options()).e.code)
