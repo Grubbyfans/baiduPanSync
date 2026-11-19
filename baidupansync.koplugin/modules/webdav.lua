@@ -88,6 +88,7 @@ end
 function M:mkdir(path,done) return self:_request('MKCOL',path,nil,nil,done) end
 function M:_condition(pre)
     if not pre then return {} end
+    if pre.unconditional then return {} end
     if not self.conditional_verified then return nil,err('UNSUPPORTED','服务器条件写入尚未验证') end
     if pre.absent==true and pre.etag==nil then return {['If-None-Match']='*'} end
     if pre.absent==nil and type(pre.etag)=='string' and pre.etag:match('^"[^"%c]+"$') then
@@ -96,12 +97,17 @@ function M:_condition(pre)
     return nil,err('INVALID_INPUT','需要不存在条件或强 ETag；弱 ETag 不能用于 If-Match')
 end
 function M:uploadSmallJson(path,text,pre,done)
-    if type(text)~='string' or #text>65536 then return done(err('INVALID_INPUT','测试 JSON 超过 64 KiB')) end
+    if type(text)~='string' or #text>(path=='library.json' and 4*1024*1024 or 65536) then return done(err('INVALID_INPUT','测试 JSON 超过 64 KiB')) end
     local h,e=self:_condition(pre); if not h then return done(e) end
     h['Content-Type']='application/json'
     return self:_request('PUT',path,text,h,done)
 end
 function M:delete(path,pre,done)
+    if pre and pre.unconditional then
+        local id=path:match('^books/(.+)%.epub$') or path:match('^progress/(.+)%.json$') or path:match('^covers/(.+)%.json$')
+        if not require('modules/book_name').valid(id) then return done(err('FORBIDDEN','删除路径无效')) end
+        return self:_request('DELETE',path,nil,nil,done)
+    end
     -- Only probe files and explicitly versioned book-owned files are allowed.
     local publication=type(path)=='string' and (path:match('^metadata/([0-9a-f]+)%.json$')
         or path:match('^progress/([0-9a-f]+)%.json$') or path:match('^books/([0-9a-f]+)%.epub$'))
@@ -118,7 +124,7 @@ function M:download(path,destination,progress,done,opts)
     if type(destination)=='function' then done=destination;destination=nil end
     done=done or function() end
     if not destination then
-        return self:_request('GET',path,nil,nil,function(e,r) done(e,r and r.body) end)
+        return self:_request('GET',path,nil,nil,function(e,r) done(e,r and r.body) end,{max_bytes=path=='library.json' and 4*1024*1024 or 65536})
     end
     local attr=require('libs/libkoreader-lfs').symlinkattributes(destination)
     if type(destination)~='string' or destination:sub(-5)~='.part' or not attr or attr.mode~='file' or attr.size~=0 then

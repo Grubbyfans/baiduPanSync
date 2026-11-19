@@ -11,8 +11,8 @@ local Screen=require('device').screen
 local BB=require('ffi/blitbuffer')
 local M={};M.__index=M
 local stages={
-    upload_book={'确认书籍内容','检查云端与同名书籍','提交或复用 EPUB','核对云端文件','发布书库记录'},
-    download_book={'检查云端书籍','检查本机同名书籍','下载 EPUB','校验整书内容','安装到本机'},
+    upload_book={'准备书籍','读取书库列表','上传 EPUB','确认提交结果','发布书库列表'},
+    download_book={'检查云端书籍','检查本机同名书籍','下载 EPUB','检查文件大小','安装到本机'},
     repair_book={'检查未发布文件','回读云端 EPUB','校验整书内容','补全发布记录'},
 }
 local titles={upload_book='上传书籍',download_book='下载书籍',repair_book='修复书库发布'}
@@ -83,7 +83,7 @@ function M:phase(name)
     self:set_stage(stage,name)
 end
 function M:hash_start(total)
-    self.detail=self.stage==3 and self.kind=='upload_book' and '计算上传分片摘要' or '计算整书 SHA-256'
+    self.detail=self.stage==3 and self.kind=='upload_book' and '计算上传分片摘要' or '计算上传分片 MD5'
     self.total=total;self.count=0;self:render()
 end
 function M:report(count,total)

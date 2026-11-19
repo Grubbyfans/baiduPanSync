@@ -37,8 +37,8 @@ function M.request(opts,done)
         if opts.raw then return done(nil,r.body) end
         local v=M.decode(r.body)
         if not v then return done(Errors.new('INVALID_INPUT','百度返回的数据无效')) end
-        if v.error or (v.errno~=nil and v.errno~=0) then
-            local n=v.errno or v.error
+        if v.error or (v.errno~=nil and v.errno~=0) or (v.error_code~=nil and v.error_code~=0) then
+            local n=v.errno or v.error_code or v.error
             local auth=n==110 or n==111 or n==-6 or n==20016 or n==20017 or n==31045
                 or n=='invalid_grant' or n=='invalid_client'
             local public_code=type(n)=='number' and tostring(n) or

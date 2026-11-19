@@ -49,7 +49,7 @@ end
 function M:upload(path,file,progress,cb,opts)
     local e=self:before('upload',path)or self:check(path,opts.precondition);if e then return cb(e)end
     local f=assert(io.open(file,'rb'));local raw=f:read('*a');f:close()
-    if Hash.sha256_text(raw)~=opts.expected_sha256 then return cb(errorcode('CONFLICT'))end
+    if opts.expected_sha256 and Hash.sha256_text(raw)~=opts.expected_sha256 then return cb(errorcode('CONFLICT'))end
     self.files[path]=raw;self.writes[#self.writes+1]=path;cb(nil,{})
 end
 function M:delete(path,pre,cb)

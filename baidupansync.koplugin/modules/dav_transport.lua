@@ -43,7 +43,7 @@ function M.perform(req)
     if req.username then headers.Authorization='Basic '..mime.b64(req.username..':'..req.password) end
     for k,v in pairs(req.headers or {}) do headers[k]=v end
     local input,output,source
-    local digest=req.upload_path and require('ffi/sha2').sha256()
+    local digest=req.upload_path and req.expected_sha256 and require('ffi/sha2').sha256()
     local uploaded=0
     if req.upload_path then
         input=io.open(req.upload_path,'rb')
@@ -61,7 +61,7 @@ function M.perform(req)
                 return nil
             end
             local chunk,e=input:read(req.upload_size and math.min(65536,req.upload_size-uploaded) or 65536)
-            if chunk then digest(chunk);uploaded=uploaded+#chunk;report(uploaded) end
+            if chunk then if digest then digest(chunk)end;uploaded=uploaded+#chunk;report(uploaded) end
             if not chunk and req.upload_size and uploaded~=req.upload_size then return nil,'source truncated' end
             return chunk,e
         end

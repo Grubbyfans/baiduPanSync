@@ -5,12 +5,14 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from lupa import LuaRuntime
+from lupa.lua54 import LuaRuntime
 
 repo = Path(__file__).resolve().parents[2]
 os.chdir(repo)
 for path in sorted((repo / 'baidupansync.koplugin/spec').glob('*regression.lua')):
+    print('Running '+path.name, flush=True)
     lua = LuaRuntime(encoding=None, unpack_returned_tuples=True)
+    lua.execute(b"os.setlocale('C')")
     lua.globals()[b'fixture_b64'] = base64.b64encode
     lua.globals()[b'fixture_unb64'] = base64.b64decode
     def from_lua(value):
@@ -69,7 +71,8 @@ for path in sorted((repo / 'baidupansync.koplugin/spec').glob('*regression.lua')
     lua.execute(b'os.rename=fixture_replace')
     with tempfile.TemporaryDirectory(prefix='bps-isolated-') as temporary:
         lua.globals()[b'fixture_temp_dir'] = temporary.replace('\\', '/').encode()
-        lua.execute(path.read_bytes())
+        lua.execute(b"local n=0; os.tmpname=function() n=n+1; return fixture_temp_dir..'/tmp-'..n end")
+        lua.execute(b"local ok,e=xpcall(function()\n"+path.read_bytes()+b"\nend,function(e)return debug.traceback(type(e)=='table' and (e.code..': '..e.message) or tostring(e))end);if not ok then error(e)end")
 lua = LuaRuntime(encoding=None)
 check = lua.eval(b'function(s) assert(load(s)) end')
 for path in (repo / 'baidupansync.koplugin').rglob('*.lua'):

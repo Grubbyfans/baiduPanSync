@@ -5,7 +5,7 @@ local json=require('json')
 local sha=require('ffi/sha2')
 local M={}
 function M.new(root,user)
-    local remote={files={},dirs={[root]=true},sequence=0,uploads=0}
+    local remote={files={},dirs={[root]=true},sequence=0,uploads=0,calls={}}
     local function respond(done,value)done(nil,{status=200,body=json.encode(value)})end
     remote.put=function(path,raw)
         remote.sequence=remote.sequence+1
@@ -15,6 +15,7 @@ function M.new(root,user)
     remote.transport=function(req,done)
         local endpoint,query=req.url:match('^https://[^/]+([^?]+)%?(.*)$')
         local q=assert(Form(query));local body=req.body and Form(req.body) or {}
+        remote.calls[#remote.calls+1]={method=q.method or endpoint,path=body.path or q.path,request=req}
         local response={errno=0}
         if q.method=='uinfo' then response.uk=user;response.netdisk_name='测试用户'
         elseif q.method=='list' then
@@ -39,11 +40,14 @@ function M.new(root,user)
             remote.pending=body;remote.parts={};response.return_type=1;response.uploadid='fixture-upload';response.block_list={}
             for i in ipairs(json.decode(body.block_list))do response.block_list[#response.block_list+1]=i-1 end
             if remote.after_precreate then remote.after_precreate(body.path)end
+        elseif q.method=='locateupload' then
+            assert(q.path==remote.pending.path and q.uploadid=='fixture-upload')
+            response={error_code=0,expire=60,servers={{server='https://fixture.pcs.baidu.com'}}}
         elseif q.method=='upload' then
             local raw
             if req.upload_path then
                 local f=assert(io.open(req.upload_path,'rb'));f:seek('set',req.upload_offset);raw=f:read(req.upload_size);f:close()
-                assert(sha.sha256(raw)==req.expected_sha256)
+                assert(not req.expected_sha256,'name-based uploads do not hash EPUB content')
             else raw=req.body:match('\r\n\r\n(.-)\r\n%-%-bps%-')end
             remote.parts[tonumber(q.partseq)+1]=raw;response.md5=sha.md5(raw)
         elseif q.method=='create' then
@@ -51,7 +55,7 @@ function M.new(root,user)
             assert(body.path==remote.pending.path)
             local raw=table.concat(remote.parts);assert(#raw==tonumber(body.size))
             remote.put(body.path,raw);remote.uploads=remote.uploads+1
-            response.path=body.path;response.size=#raw
+            response.path=body.path;response.size=#raw;response.fs_id=remote.files[body.path].id
             if remote.after_create then remote.after_create(body.path,raw)end
         elseif q.method=='filemanager' then
             assert(q.opera=='delete' and body.async=='0')
@@ -62,7 +66,7 @@ function M.new(root,user)
         elseif q.method=='filemetas' then
             local id=tostring(json.decode(q.fsids)[1]);local path,record
             for p,r in pairs(remote.files)do if r.id==id then path=p;record=r end end
-            assert(record)
+            if not record then return respond(done,{errno=-9})end
             response.list={{path=path,fs_id=id,size=#record.raw,dlink='https://d.pcs.baidu.com/download?fixture_id='..id}}
         elseif endpoint=='/download' then
             local raw

@@ -175,20 +175,24 @@ function ProgressRecord.validate(record)
     if type(record) ~= "table" then
         return fail("record must be a JSON object")
     end
-    if record.schemaVersion ~= ProgressRecord.SCHEMA_VERSION then
+    if record.schemaVersion ~= ProgressRecord.SCHEMA_VERSION and record.schemaVersion ~= 2 then
         return nil, Errors.new(Errors.CODES.UNSUPPORTED,
             "unsupported schemaVersion: " .. tostring(record.schemaVersion))
     end
 
     local book = record.book
     if type(book) ~= "table" then return fail("book must be an object") end
-    if not ProgressRecord.is_sha256_hex(book.id) then
+    if record.schemaVersion==2 then
+        if not require('modules/book_name').valid(book.id) or book.contentSha256~=nil then
+            return fail('invalid name-based book identity')
+        end
+    elseif not ProgressRecord.is_sha256_hex(book.id) then
         return fail("book.id must be 64 lowercase hex characters")
     end
-    if not ProgressRecord.is_sha256_hex(book.contentSha256) then
+    if record.schemaVersion~=2 and not ProgressRecord.is_sha256_hex(book.contentSha256) then
         return fail("book.contentSha256 must be 64 lowercase hex characters")
     end
-    if book.id ~= book.contentSha256 then
+    if record.schemaVersion~=2 and book.id ~= book.contentSha256 then
         return fail("book.id must equal book.contentSha256")
     end
     if book.format ~= "epub" then
@@ -285,15 +289,15 @@ function ProgressRecord.build(context, identity, opts)
         return nil, Errors.new(Errors.CODES.INVALID_INPUT, "invalid capture context")
     end
     if type(identity) ~= "table"
-        or not ProgressRecord.is_sha256_hex(identity.content_sha256)
+        or not (identity.name_based and require("modules/book_name").valid(identity.book_id) or ProgressRecord.is_sha256_hex(identity.content_sha256))
         or not is_uint(identity.size) then
         return nil, Errors.new(Errors.CODES.INVALID_INPUT, "invalid book identity")
     end
-    local title = context.book.title or context.book.file_name
+    local title = identity.name_based and identity.book_id or context.book.title or context.book.file_name
     local record = {
-        schemaVersion = ProgressRecord.SCHEMA_VERSION,
+        schemaVersion = identity.name_based and 2 or ProgressRecord.SCHEMA_VERSION,
         book = {
-            id = identity.content_sha256,
+            id = identity.name_based and identity.book_id or identity.content_sha256,
             title = title,
             format = "epub",
             size = identity.size,

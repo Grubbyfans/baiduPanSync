@@ -12,7 +12,7 @@ function M.file(path,opts,done)
     local f=io.open(path,'rb');if not f then return done(E.new('IO','无法读取上传源文件')) end
     local plan={size=st.size,mtime=st.modification,blocks={},parts={}}
     local total,part_size=0,0
-    local full,md5,part_sha=sha.sha256(),sha.md5(),sha.sha256()
+    local md5=sha.md5()
     local finished=false
     local function finish(err)
         if finished then return end;finished=true;f:close()
@@ -28,16 +28,16 @@ function M.file(path,opts,done)
         if changed() then return finish(E.new('CONFLICT','上传源文件在分片检查期间发生变化')) end
         local chunk=f:read(math.min(65536,st.size-total,M.BLOCK_SIZE-part_size))
         if not chunk or #chunk==0 then return finish(E.new('IO','上传源文件读取不完整')) end
-        full(chunk);md5(chunk);part_sha(chunk);total=total+#chunk;part_size=part_size+#chunk
+        md5(chunk);total=total+#chunk;part_size=part_size+#chunk
         if part_size==M.BLOCK_SIZE or total==st.size then
             plan.blocks[#plan.blocks+1]=md5()
-            plan.parts[#plan.parts+1]={offset=total-part_size,size=part_size,sha256=part_sha()}
-            md5=sha.md5();part_sha=sha.sha256();part_size=0
+            plan.parts[#plan.parts+1]={offset=total-part_size,size=part_size}
+            md5=sha.md5();part_size=0
         end
         if opts.on_progress then opts.on_progress(total,st.size) end
         if total==st.size then
             if changed() then return finish(E.new('CONFLICT','上传源文件在分片检查后发生变化')) end
-            plan.sha256=full();return finish()
+            return finish()
         end
         (opts.schedule or function(cb)require('ui/uimanager'):scheduleIn(0,cb)end)(step)
     end

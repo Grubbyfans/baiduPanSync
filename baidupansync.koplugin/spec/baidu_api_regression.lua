@@ -36,8 +36,11 @@ local function transport(req,done)
         assert(req.writing and body.path:sub(1,#root+1)==root..'/')
         dirs[body.path]=true;result.path=body.path
     elseif q.method=='precreate' then
-        assert(body.rtype=='0' and body.autoinit=='1' and req.writing)
+        assert(body.rtype=='3' and body.autoinit=='1' and req.writing)
         pending=body;result.return_type=1;result.uploadid='upload-id';result.block_list={0}
+    elseif q.method=='locateupload' then
+        assert(q.uploadid=='upload-id' and q.path==pending.path)
+        result={error_code=0,servers={{server='https://fixture.pcs.baidu.com'}}}
     elseif q.method=='upload' then
         assert(q.uploadid=='upload-id' and q.partseq=='0' and q.type=='tmpfile')
         uploaded=req.body:match('\r\n\r\n(.-)\r\n%-%-bps%-')
@@ -74,9 +77,9 @@ assert(count==1 and calls>10 and next(files)==nil)
 api:mkdir('c2-probe-aa',function(e)assert(not e)end)
 api:uploadSmallJson('c2-probe-aa/probe.json','{"test":1}',nil,function(e)assert(not e,e and e.message)end)
 bad_link='https://evil.example/probe'
-api:download('c2-probe-aa/probe.json',function(e)assert(e.code=='TLS')end)
+api:download('c2-probe-aa/probe.json',function(e)assert(e.code=='INVALID_INPUT')end)
 local before=calls
-api:delete('books/real.epub',nil,function(e)assert(e.code=='FORBIDDEN')end)
+api:delete('other/real.epub',nil,function(e)assert(e.code=='FORBIDDEN')end)
 assert(calls==before)
 api.transport=function(_,done)done(E.new('UNCERTAIN','cancelled write',{outcome='uncertain'}))end
 api:mkdir('c2-probe-bb',function(e)assert(e.code=='UNCERTAIN')end)

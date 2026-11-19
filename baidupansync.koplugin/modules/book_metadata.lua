@@ -33,6 +33,15 @@ local function timestamp(s)
     return zh and tonumber(zh)<=23 and tonumber(zm)<=59 or false
 end
 function M.validate(v)
+    if type(v)=='table' and v.schemaVersion==2 then
+        local Name=require('modules/book_name')
+        if not Name.valid(v.bookId) or v.fileName~=v.bookId..'.epub'
+            or v.path~='books/'..v.fileName or v.title~=v.bookId
+            or v.status~='ready' or type(v.size)~='number' or v.size<1 or v.size%1~=0 or v.size>1024*1024*1024
+            or not timestamp(v.uploadedAt) or v.contentSha256~=nil or v.coverPng~=nil
+            or (v.coverPath~=nil and v.coverPath~='covers/'..v.bookId..'.json') then return invalid() end
+        return v
+    end
     if type(v)~='table' or v.schemaVersion~=1 or v.status~='ready' or not Hash.is_sha256_hex(v.bookId)
         or v.contentSha256~=v.bookId or v.path~='books/'..v.bookId..'.epub'
         or type(v.size)~='number' or v.size<0 or v.size~=math.floor(v.size) or v.size>9007199254740991

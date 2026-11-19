@@ -20,14 +20,14 @@ local queue,plan={},nil
 Plan.file(file,{schedule=function(cb)queue[#queue+1]=cb end},function(e,p)assert(not e);plan=p end)
 assert(not plan and #queue==1,'planning must yield before reading a whole EPUB')
 while #queue>0 do table.remove(queue,1)()end
-assert(plan.size==#data and #plan.blocks==2 and plan.sha256==sha.sha256(data))
+assert(plan.size==#data and #plan.blocks==2 and plan.sha256==nil)
 assert(plan.parts[1].size==Plan.BLOCK_SIZE and plan.parts[2].offset==Plan.BLOCK_SIZE)
 local cancel=false
 Plan.file(file,{schedule=function(cb)queue[#queue+1]=cb end,is_cancelled=function()return cancel end},
     function(e)assert(e.code=='CANCELLED')end)
 cancel=true;while #queue>0 do table.remove(queue,1)()end
 local root='/apps/fixture'
-local target='books/'..plan.sha256..'.epub'
+local target='books/book.epub'
 local stored,parts,pending,commits={}, {},nil,0
 local changed=false
 local function transport(req,done)
@@ -43,14 +43,16 @@ local function transport(req,done)
         local blocks=json.decode(body.block_list)
         response.return_type=1;response.uploadid='upload';response.block_list={}
         for i=#blocks,1,-1 do response.block_list[#response.block_list+1]=i-1 end
+    elseif q.method=='locateupload' then
+        response={error_code=0,servers={{server='https://fixture.pcs.baidu.com'}}}
     elseif q.method=='upload' then
         assert(req.upload_size<=4*1024*1024 and req.upload_prefix and req.upload_suffix)
         local f=assert(io.open(req.upload_path,'rb'));f:seek('set',req.upload_offset)
         local raw=f:read(req.upload_size);f:close()
-        assert(sha.sha256(raw)==req.expected_sha256)
+        assert(req.expected_sha256==nil)
         parts[tonumber(q.partseq)+1]=raw;response.md5=sha.md5(raw)
     elseif q.method=='create' then
-        assert(body.path==pending.path and body.rtype=='0')
+        assert(body.path==pending.path and body.rtype=='3')
         local raw=table.concat(parts);assert(#raw==tonumber(body.size))
         stored[body.path]={raw=raw,revision=1};commits=commits+1
         response.path=body.path;response.size=#raw
@@ -76,12 +78,12 @@ local uploads=0
 api:upload(target,file,nil,function(e)assert(not e,e and e.message);uploads=uploads+1 end,
     {expected_sha256=plan.sha256,precondition={absent=true}})
 assert(uploads==1 and commits==1 and stored[root..'/'..target].raw==data)
-api:upload(target,file,nil,function(e)assert(e.code=='CONFLICT')end,{expected_sha256=plan.sha256,precondition={absent=true}})
-assert(commits==1,'existing content paths must never be overwritten')
+api:upload(target,file,nil,function(e)assert(not e)end,{precondition={unconditional=true}})
+assert(commits==2,'same name must overwrite')
 local destination=fixture_temp_dir..'/download.part';write(destination,'')
 api:download(target,destination,nil,function(e,r)assert(not e,e and e.message);assert(r.size==#data)end,{max_bytes=#data})
 assert(read(destination)==data)
 changed=true
-api:download(target,destination,nil,function(e)assert(e.code=='CONFLICT')end,{max_bytes=#data})
-api:upload(target,file,nil,function(e)assert(e.code=='CONFLICT')end,{expected_sha256=string.rep('0',64)})
+api:download(target,destination,nil,function(e)assert(not e)end,{max_bytes=#data})
+api:upload(target,file,nil,function(e)assert(not e)end,{precondition={unconditional=true}})
 print('Baidu multi-slice bounded planning, streamed transfer, source identity and download version regressions passed')

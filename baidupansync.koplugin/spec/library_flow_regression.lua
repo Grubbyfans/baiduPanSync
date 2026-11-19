@@ -23,46 +23,73 @@ package.loaded['ui/progress_dialog']={error=function(e)errors=errors+1;notice=e 
     result=function(title,text,actions)notice={text=text,persistent=true,actions=actions}end}
 G_reader_settings={readSetting=function()return '/books' end}
 local cached={backend='fixture',backend_id='backend',entries={},issues={},unpublished={}}
-local cache={load=function()return cached end,save=function()saved=saved+1;return true end,
+local today=true
+local cache={load=function()return cached end,fresh=function()return today end,
+    save=function(_,_,value)saved=saved+1;cached=value;return true end,
     invalidate=function()invalidated=invalidated+1 end}
 package.loaded['modules/library_cache']={new=function()return cache end}
-local pending,list_calls= nil,0
+local pending,list_calls=nil,0
 package.loaded['modules/cloud_service']={new=function()
-    return {list=function(_,opts,done)list_calls=list_calls+1;pending=done;assert(opts.cached_result==cached)end,
-        repair_book=function(_,entry,opts,done)
-            assert(entry.book_id=='id');done(nil,{record={bookId='id',title='repaired'},entry={record={bookId='id'}}})
-        end}
+    return {list=function(_,opts,done)list_calls=list_calls+1;pending=done end}
 end}
 package.loaded['ui/cloud_dialog']={library=function(result,download,page,on_show,on_close,state,on_delete,on_repair,on_refresh)
     shown=shown+1
     local grid={result=result,page=2,on_close=on_close,on_repair=on_repair,on_refresh=on_refresh,
-        updateResult=function(self,r)self.result=r end}
+        updateResult=function(self,r)self.result=r end,rebuild=function()end}
     on_show(grid);return grid
 end}
 local Plugin=dofile('baidupansync.koplugin/main.lua')
 local plugin=setmetatable({active_backend='webdav',dav_adapter={backend_id='backend',root='fixture'},settings_dir='/fixture',
     refreshHome=function()end,_hash_opts=function()return {is_cancelled=function()return false end}end,
     progress={capture=function()error('library/repair must not require a local document')end}}, {__index=Plugin})
+-- Same-day visits are purely local, and the manual button forces a download.
 plugin:onCloudLibrary()
 local first=plugin.library_dialog
-assert(first.result==cached and cached.refreshing and list_calls==0 and plugin.dav_busy)
+assert(first.result==cached and list_calls==0 and not plugin.dav_busy)
+plugin:onCloudLibrary();assert(list_calls==0 and plugin.library_dialog==first)
+first.on_refresh();assert(plugin.dav_busy and #queue==1)
 table.remove(queue,1)();assert(list_calls==1)
-pending({code='NETWORK',message='offline'})
-assert(not plugin.dav_busy and plugin.library_dialog==first and first.result.cached~=false and cached.refresh_error=='offline')
 local fresh={backend='fixture',backend_id='backend',entries={},issues={},unpublished={}}
-plugin:onCloudLibrary();local second=plugin.library_dialog
-table.remove(queue,1)();pending(nil,fresh)
-assert(second==plugin.library_dialog and second.result==fresh and second.page==2 and saved==1)
+pending(nil,fresh)
+assert(not plugin.dav_busy and first.result==fresh and saved==1)
+plugin:onCloudLibrary();assert(list_calls==1)
+-- Next-day first visit refreshes; failure keeps cached data and permits retry.
+today=false
+plugin:onCloudLibrary();table.remove(queue,1)();assert(list_calls==2)
+pending({code='NETWORK',message='offline'})
+assert(not plugin.dav_busy and first.result.refresh_error=='offline')
+plugin:onCloudLibrary();table.remove(queue,1)();assert(list_calls==3)
+pending(nil,fresh);assert(saved==2)
+-- Closing a cached view before refresh cancels without resurrecting it.
 plugin:onCloudLibrary();local closing=plugin.library_dialog
 UI:close(closing);local before=shown;table.remove(queue,1)()
-assert(shown==before and not plugin.dav_busy,'closing cached view before refresh must cancel without reopening')
+assert(shown==before and not plugin.dav_busy)
+-- A late response may update disk but must never reopen a closed view.
 plugin:onCloudLibrary();closing=plugin.library_dialog
 table.remove(queue,1)();UI:close(closing);before=shown;pending(nil,fresh)
-assert(shown==before and plugin.library_dialog==nil and saved==2)
--- A successful repair updates the visible orphan list without a local EPUB.
-cached={backend='fixture',backend_id='backend',entries={},issues={},unpublished={{book_id='id'}}}
-plugin:onCloudLibrary();table.remove(queue,1)();pending(nil,cached)
-plugin.library_dialog.on_repair(cached.unpublished[1])
-assert(#plugin.library_dialog.result.unpublished==0 and #plugin.library_dialog.result.entries==1)
-assert(invalidated==1 and notice.persistent and not plugin.dav_busy)
-print('Cached library first paint, offline retention, closed-view safety and repair UI lifecycle regressions passed')
+assert(shown==before and plugin.library_dialog==nil and saved==3)
+print('Daily local library, manual refresh, offline retention and closed-view lifecycle passed')
+
+-- Covers are fetched only for visible books, then persistently cached by version.
+local covers,cover_gets={},0
+cache.load_cover=function(_,_,record)
+    local v=covers[record.bookId];return v and v.version==record.coverVersion and v.cover
+end
+cache.save_cover=function(_,_,record,cover)covers[record.bookId]={version=record.coverVersion,cover=cover}end
+package.loaded['modules/book_cover'].decode=function(value)return value=='cover' and value end
+plugin.dav_adapter.download=function(_,path,cb)
+    cover_gets=cover_gets+1;cb(nil,'{"coverPng":"cover"}')
+end
+local one={record={bookId='one',coverPath='covers/one.json',coverVersion='1'}}
+local two={record={bookId='two',coverPath='covers/two.json',coverVersion='1'}}
+cached={backend='fixture',backend_id='backend',entries={one,two},issues={},unpublished={}}
+today=true;plugin:onCloudLibrary()
+local grid=plugin.library_dialog;grid.visible_entries={one};grid.page=1
+grid.result.load_covers(grid);assert(cover_gets==1 and one.coverPng=='cover' and not two.coverPng)
+-- A new entry object simulates closing/reopening or restarting with disk cache.
+local again={record=one.record};grid.visible_entries={again};grid.result.load_covers(grid)
+assert(cover_gets==1 and again.coverPng=='cover')
+local changed={record={bookId='one',coverPath='covers/one.json',coverVersion='2'}}
+grid.visible_entries={changed};grid.result.load_covers(grid);assert(cover_gets==2)
+grid.visible_entries={two};grid.result.load_covers(grid);assert(cover_gets==3)
+print('Visible-page cover loading, cache reuse and per-book cover invalidation passed')

@@ -409,6 +409,7 @@ function ProgressService:apply(context, position, completion, opts)
         })
     end
 
+    before.book.name_identity = context.book.name_identity
     before.book.content_sha256 = context.book.content_sha256
     before.book.source_backend_id = context.book.source_backend_id
     local restore_point = {
@@ -525,6 +526,13 @@ function ProgressService:undo(completion)
     local rp, err = self.store:get_restore_point()
     if err then return completion(err) end
     if not rp then return completion(Errors.new(Errors.CODES.NOT_FOUND, "没有恢复点")) end
+    if rp.book.name_identity then
+        local context,e=self:capture()
+        if not context then return completion(e) end
+        local id=require('modules/book_name').id(context.book.file_name)
+        if id~=rp.book.name_identity then return completion(Errors.new('CONFLICT','恢复点属于另一本书')) end
+        return self:_undo_verified(completion)
+    end
     if not require("modules/hash").is_sha256_hex(rp.book.content_sha256) then
         return completion(Errors.new(Errors.CODES.UNSUPPORTED, "旧恢复点缺少完整摘要，拒绝撤销；原记录已保留"))
     end

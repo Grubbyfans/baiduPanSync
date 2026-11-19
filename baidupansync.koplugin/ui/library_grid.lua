@@ -64,10 +64,12 @@ function Grid:goToPage(page)
     self.page=math.max(1,math.min(page,self.pages))
     self:rebuild()
 end
-function Grid:rebuild()
+function Grid:rebuild(skip_cover_fetch)
     if self.closed then return end
     if self[1] then self[1]:free();self[1]=nil end
+    self.skip_cover_fetch=skip_cover_fetch
     self:build()
+    self.skip_cover_fetch=nil
     UI:setDirty(self,'ui',nil,true)
 end
 function Grid:updateResult(result)
@@ -139,7 +141,7 @@ function Grid:options()
         {{text=_('按文件大小排序'),callback=function()
             UI:close(dialog);self.state.order='size';self.page=1;self:rebuild()
         end}},
-        {{text=_('刷新书库'),enabled=self.on_refresh~=nil,callback=function()
+        {{text=_('主动更新书库'),enabled=self.on_refresh~=nil,callback=function()
             UI:close(dialog);if not self.closed and self.on_refresh then self.on_refresh() end
         end}},
         {{text=string.format('待处理书籍（%d）',pending_count),
@@ -151,7 +153,7 @@ function Grid:options()
             local lines={'后端：'..(self.result.backend_label or self.result.backend),'服务：'..self.result.backend,'书籍：'..#self.result.entries,
                 '异常记录：'..#self.result.issues}
             if self.result.updated_at then lines[#lines+1]='最近刷新：'..os.date('%Y-%m-%d %H:%M',self.result.updated_at) end
-            if self.result.cached then lines[#lines+1]='当前显示本机缓存，操作前仍会核对云端版本。' end
+            if self.result.cached then lines[#lines+1]='当前显示本机缓存；每天首次进入或主动更新时获取书库列表。' end
             if self.result.refresh_error then lines[#lines+1]='刷新失败：'..self.result.refresh_error end
             for _,issue in ipairs(self.result.issues) do lines[#lines+1]=issue.path or '未知位置' end
             require('ui/progress_dialog').info(table.concat(lines,'\n'))
@@ -192,7 +194,7 @@ function Grid:cell(entry,layout)
     local title=self.title_for(entry.record)
     if entry.incomplete then title='[待处理] '..title end
     local cover
-    local ok,bb=pcall(Cover.render,entry.record.coverPng)
+    local ok,bb=pcall(Cover.render,entry.coverPng or entry.record.coverPng)
     if ok and bb then
         local scale=math.min(cover_w/bb:getWidth(),cover_h/bb:getHeight())
         cover=Image:new{image=bb,scale_factor=scale}
@@ -221,6 +223,12 @@ function Grid:cell(entry,layout)
 end
 
 function Grid:build()
+    if not self.skip_cover_fetch and self.result.load_covers then
+        local result=self.result
+        UI:scheduleIn(0,function()
+            if not self.closed and self.result==result then result.load_covers(self)end
+        end)
+    end
     local w,h=self.dimen.w,self.dimen.h
     local pending_count=#Issues.collect(self.result)
     local caption=self.result.refreshing and '云端书库 · 缓存刷新中' or self.result.cached and '云端书库 · 本机缓存' or '云端书库'
@@ -237,6 +245,9 @@ function Grid:build()
             else self:search() end
         end},
     }}
+    if self.on_refresh then
+        toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('主动更新书库'),callback=function()if not self.closed then self.on_refresh()end end}
+    end
     if self.on_switch_backend then
         toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('切换后端'),
             callback=function()if not self.closed then self.on_switch_backend()end end}

@@ -332,7 +332,7 @@ describe("Stage B integration: two-device JSON exchange", function()
         device_a.identity:identify(downloaded.path,{use_cache=false,schedule=schedule_hash},function(e,r)
             assert.is_nil(e);downloaded_identity=r
         end)
-        assert.is_equal(book_uploaded.record.bookId,downloaded_identity.book_id)
+        assert.is_equal(require("modules/book_name").id(downloaded.path:match("([^/]+)$")),book_uploaded.record.bookId)
         local uploaded
         cloud:progress_operation("upload",initial,opts,function(e,r)assert.is_nil(e);uploaded=r end)
         flush_position_checks()

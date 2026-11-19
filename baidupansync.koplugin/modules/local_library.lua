@@ -37,11 +37,7 @@ function M.scan(root,filename,identity,opts)
                 if attr.mode=='directory' then stack[#stack+1]=path
                 elseif attr.mode=='file' and name:match('%.[Ee][Pp][Uu][Bb]$')
                     and Metadata.name(name)==filename then
-                    local hashopts={}
-                    for k,v in pairs(opts) do hashopts[k]=v end
-                    hashopts.use_cache=false
-                    local id=M.identify(identity,path,hashopts)
-                    results[#results+1]={path=path,sha256=id.content_sha256,size=id.size,mtime=id.mtime}
+                    results[#results+1]={path=path,size=attr.size,mtime=attr.modification,same=true}
                 end
                 steps=steps+1
                 if steps%50==0 then

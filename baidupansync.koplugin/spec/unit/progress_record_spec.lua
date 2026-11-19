@@ -44,7 +44,7 @@ describe("progress_record (cloud schema v1)", function()
 
     it("rejects unknown schema versions", function()
         local record = valid_record()
-        record.schemaVersion = 2
+        record.schemaVersion = 99
         local ok, err = ProgressRecord.validate(record)
         assert.is_nil(ok)
         assert.is_equal("UNSUPPORTED", err.code)

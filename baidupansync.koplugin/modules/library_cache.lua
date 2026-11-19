@@ -1,82 +1,51 @@
--- Local acceleration only. Mutations always re-read the selected remote files.
+-- Persistent catalog and thumbnail cache, isolated by backend/account.
 local json=require('json')
 local Files=require('modules/file_util')
 local Hash=require('modules/hash')
-local Meta=require('modules/book_metadata')
-local M={MAX_BYTES=16*1024*1024};M.__index=M
-local function stat(v)
-    return type(v)=='table' and v.type=='file' and type(v.size)=='number' and v.size>=0 and v.size%1==0
-        and (v.etag==nil or type(v.etag)=='string' and #v.etag<=1024)
-        and (v.version==nil or type(v.version)=='string' and #v.version<=1024)
-        and (v.weak_etag==nil or type(v.weak_etag)=='boolean')
-end
+local Catalog=require('modules/library_catalog')
+local M={};M.__index=M
 function M:new(dir)return setmetatable({dir=dir},self)end
 function M:path(id)
     if not Hash.is_sha256_hex(id) then return nil end
-    return self.dir..'/library-'..id..'.json'
+    return self.dir..'/catalog-'..id..'.json'
 end
 function M:load(id,root)
     local path=self:path(id);if not path then return nil end
-    local raw=Files.read_file(path,M.MAX_BYTES);if not raw then return nil end
+    local raw=Files.read_file(path,Catalog.MAX_BYTES+65536);if not raw then return nil end
     local ok,v=pcall(json.decode,raw)
-    if not ok or type(v)~='table' or v.schemaVersion~=1 or v.backend_id~=id
-        or type(v.entries)~='table' or #v.entries>10000 or type(v.updated_at)~='number'
-        or v.updated_at<0 or v.updated_at%1~=0 or v.updated_at>os.time()+86400 then return nil end
-    local result={backend_id=id,backend=root,entries={},issues={},unpublished={},updated_at=v.updated_at,cached=true}
-    local seen={}
-    for _,entry in ipairs(v.entries) do
-        if type(entry)~='table' or not stat(entry.stat)
-            or (entry.incomplete~=nil and entry.incomplete~=true)
-            or (entry.book_stat~=nil and not stat(entry.book_stat)) then return nil end
-        local record=Meta.decode(entry.raw)
-        if not record or entry.stat.size~=#entry.raw or seen[record.bookId]
-            or (not entry.incomplete and (not entry.book_stat or record.size~=entry.book_stat.size)) then return nil end
-        seen[record.bookId]=true
-        result.entries[#result.entries+1]={record=record,raw=entry.raw,fingerprint=Hash.sha256_text(entry.raw),
-            stat=entry.stat,book_stat=entry.book_stat,incomplete=entry.incomplete,backend_id=id}
-    end
-    -- Orphans are hints only; repair rechecks existence and the exact version.
-    if type(v.unpublished)=='table' and #v.unpublished>10000 then return nil end
-    for _,entry in ipairs(type(v.unpublished)=='table' and v.unpublished or {}) do
-        if type(entry)~='table' or not Hash.is_sha256_hex(entry.book_id) or entry.path~='books/'..entry.book_id..'.epub'
-            or not stat(entry.book_stat) or type(entry.size)~='number' or entry.size<=0 or entry.size>1024*1024*1024
-            or entry.size~=entry.book_stat.size or seen[entry.book_id] then return nil end
-        seen[entry.book_id]=true
-        entry.backend_id=id;result.unpublished[#result.unpublished+1]=entry
-    end
-    result.issues=type(v.issues)=='table' and v.issues or {}
-    if #result.issues>10000 then return nil end
-    for _,issue in ipairs(result.issues) do
-        if type(issue)~='table' or type(issue.path)~='string' or #issue.path>1024
-            or type(issue.message)~='string' or #issue.message>2048 then return nil end
-        if issue.stat and not stat(issue.stat) then return nil end
-        if issue.book_id and not Hash.is_sha256_hex(issue.book_id) then return nil end
-        if issue.backend_id and issue.backend_id~=id then return nil end
-        if issue.cleanup_allowed~=nil and type(issue.cleanup_allowed)~='boolean' then return nil end
+    if not ok or type(v)~='table' or v.schemaVersion~=2 or v.backend_id~=id
+        or type(v.updated_at)~='number' or v.updated_at<0 or v.updated_at>os.time()+86400
+        or not Catalog.validate(v.catalog) then return nil end
+    local result={catalog=v.catalog,entries={},issues={},unpublished={},backend_id=id,backend=root,updated_at=v.updated_at,cached=true}
+    for _,book in ipairs(v.catalog.books) do
+        result.entries[#result.entries+1]={record=book,backend_id=id,stat={type='file',size=0},book_stat={type='file',size=book.size}}
     end
     return result
 end
 function M:save(id,result)
-    local path=self:path(id);if not path or result.backend_id~=id then return false end
-    local entries,budget={},0
-    if #result.entries>10000 then return false end
-    for _,entry in ipairs(result.entries) do
-        if type(entry.raw)~='string' or not stat(entry.stat)
-            or (entry.book_stat~=nil and not stat(entry.book_stat))
-            or (not entry.incomplete and not entry.book_stat) then return false end
-        budget=budget+#entry.raw*2+8192
-        if budget>M.MAX_BYTES then return false end -- bound encoding allocations too
-        entries[#entries+1]={raw=entry.raw,stat=entry.stat,book_stat=entry.book_stat,incomplete=entry.incomplete}
-    end
-    budget=budget+#(result.unpublished or {})*2048+#(result.issues or {})*4096
-    if budget>M.MAX_BYTES then return false end
-    local ok,raw=pcall(json.encode,{schemaVersion=1,backend_id=id,updated_at=result.updated_at,
-        entries=entries,issues=result.issues,unpublished=result.unpublished})
-    if not ok or #raw>M.MAX_BYTES then return false end
-    if not Files.mkdir_p(self.dir) then return false end
+    local path=self:path(id)
+    if not path or result.backend_id~=id or not Catalog.validate(result.catalog) then return false end
+    local ok,raw=pcall(json.encode,{schemaVersion=2,backend_id=id,updated_at=result.updated_at,catalog=result.catalog})
+    if not ok or #raw>Catalog.MAX_BYTES+65536 or not Files.mkdir_p(self.dir) then return false end
     return Files.write_atomic(path,raw)
 end
-function M:invalidate(id)
-    local path=self:path(id);if path then os.remove(path) end
+function M:fresh(result,now)
+    return result and os.date('%Y-%m-%d',result.updated_at)==os.date('%Y-%m-%d',now or os.time())
 end
+function M:cover_path(id,record)
+    if not self:path(id) or type(record.coverVersion)~='string' then return nil end
+    return self.dir..'/cover-'..id..'-'..Hash.sha256_text(record.bookId)..'.json'
+end
+function M:load_cover(id,record)
+    local path=self:cover_path(id,record);if not path then return nil end
+    local raw=Files.read_file(path,65536);if not raw then return nil end
+    local ok,v=pcall(json.decode,raw)
+    if ok and type(v)=='table' and v.version==record.coverVersion and require('modules/book_cover').decode(v.coverPng) then return v.coverPng end
+end
+function M:save_cover(id,record,cover)
+    local path=self:cover_path(id,record)
+    if not path or not require('modules/book_cover').decode(cover) or not Files.mkdir_p(self.dir) then return false end
+    return Files.write_atomic(path,json.encode({version=record.coverVersion,coverPng=cover}))
+end
+function M:invalidate(id)local p=self:path(id);if p then os.remove(p)end end
 return M

@@ -70,11 +70,11 @@ function M.confirm(info,done)
     local buttons,dialog={},nil
     local lines={'后端：'..backend,'文件：'..info.filename}
     if info.kind=='download_book' then
-        lines[#lines+1]='发现本地同名文件，请查看下方完整位置后选择覆盖、重命名或取消。任务会等待你的选择。覆盖不同内容会备份旧 EPUB 及已有阅读设置；启用 KOReader 哈希元数据存储时，覆盖后需重启再打开。'
+        lines[#lines+1]='发现本地同名文件，请查看下方完整位置后选择覆盖、重命名或取消。任务会等待你的选择。覆盖会备份旧 EPUB，保留原有阅读设置和进度。'
         for i,candidate in ipairs(info.candidates) do
             local selected=candidate
             lines[#lines+1]=string.format('同名书籍 %d：\n%s\n%s',i,selected.path,
-                selected.same and 'bookId 相同（内容一致）' or 'bookId 不同（内容不同）')
+                selected.same and '同名书籍' or '本机文件')
             buttons[#buttons+1]={{text=string.format('覆盖同名书籍 %d',i),callback=function()
                 UI:close(dialog);done{mode='overwrite',path=selected.path}
             end}}
@@ -85,10 +85,10 @@ function M.confirm(info,done)
             local selected=candidate
             if not info.no_replace_other or selected.record.bookId==info.identity.book_id then
             buttons[#buttons+1]={{text='覆盖条目：'..Meta.filename(selected.record)..'\n'..
-                (selected.record.bookId==info.identity.book_id and 'bookId 相同（内容一致）' or 'bookId 不同（内容不同）')..' · '..selected.record.bookId:sub(1,12)..'…',callback=function()
+                (selected.record.bookId==info.identity.book_id and '同名书籍' or '本机文件')..' · '..selected.record.bookId:sub(1,12)..'…',callback=function()
                 UI:close(dialog);done{mode='overwrite',book_id=selected.record.bookId}
             end}}
-            else lines[#lines+1]='已存在：'..Meta.filename(selected.record)..'（不同内容，请选择重命名保留两本）' end
+            else lines[#lines+1]='已存在：'..Meta.filename(selected.record)..'（同名书籍）' end
         end
         if info.recovery then
             lines[#lines+1]='此 bookId 已有 EPUB 但未发布；继续将回读整本书校验后补全发布。'
@@ -163,7 +163,7 @@ function M.query(result,context,actions)
     return dialog
 end
 function M.downloaded(result,open,on_library)
-    local text='已下载并校验：'..result.path..'\n不会自动应用云端进度。'
+    local text='已下载并检查大小：'..result.path..'\n不会自动应用云端进度。'
     if result.backup then text=text..'\n旧文件备份：'..result.backup end
     if result.metadata_backups and #result.metadata_backups>0 then
         text=text..'\n旧书阅读设置已原样备份（未应用到新内容）：'..result.metadata_backups[1].backup

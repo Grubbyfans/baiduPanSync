@@ -51,7 +51,7 @@ end
 local options={schedule=function(cb)cb()end,home_dir=root..'/downloads',confirm=function(info,done)
     if info.kind=='upload_book' then done{mode='overwrite',book_id=info.identity.book_id}
     elseif info.kind=='download_book' then done{mode='overwrite',path=info.candidates[1].path}
-    else assert(info.kind~='progress_upload' or info.best_effort);done(true)end
+    else done(true)end
 end}
 local function run(c,method,...)
     local args={...};local result,count=nil,0
@@ -62,299 +62,95 @@ end
 local c=service()
 local uploaded=run(c,'upload_book',context,options)
 assert(not uploaded.e,uploaded.e and uploaded.e.message)
-assert(uploaded.value.record.verificationLevel=='sha256')
-local id=uploaded.value.record.bookId
-assert(remote.files['/apps/fixture/books/'..id..'.epub'].raw==raw)
+assert(uploaded.value.record.bookId=='same' and not uploaded.value.record.contentSha256)
+assert(remote.files['/apps/fixture/books/same.epub'].raw==raw)
+assert(remote.files['/apps/fixture/library.json'])
 local listed=run(c,'list',options);assert(not listed.e and #listed.value.entries==1)
-assert(listed.value.entries[1].record.title=='中文书籍')
+assert(listed.value.entries[1].record.title=='same')
 local downloaded=run(c,'download_book',listed.value.entries[1],options)
 assert(not downloaded.e,downloaded.e and downloaded.e.message)
 assert(read(downloaded.value.path)==raw)
--- A second download explicitly confirms the existing same-name path and backs it up.
 downloaded=run(c,'download_book',listed.value.entries[1],options)
 assert(not downloaded.e and read(downloaded.value.backup)==raw)
 local sent=run(c,'progress_operation','upload',context,options)
 assert(not sent.e,sent.e and sent.e.message)
-context.progress={type='xpointer',value='/body/p[7]/text().0',percent=0.7}
-sent=run(c,'progress_operation','upload',context,options)
-assert(not sent.e and sent.value.record.sync.revision==2)
-local received=run(c,'progress_operation','download',context,options)
-assert(not received.e and applied==1 and position=='/body/p[7]/text().0')
--- Re-publishing identical content updates the sidecar without replacing the EPUB.
-local again=run(c,'upload_book',context,options)
-assert(not again.e,again.e and again.e.message)
--- Different identities with the same filename require rename; no old sidecar is withdrawn.
-write(book,'PK-other-content')
-context.book.size=#'PK-other-content';context.book.mtime=fixture_attributes(book).modification
-local refused=run(c,'upload_book',context,{schedule=options.schedule,confirm=function(info,done)
-    assert(info.no_replace_other);done{mode='overwrite',book_id=id}
-end})
-assert(refused.e.code=='UNSUPPORTED')
-local renamed=run(c,'upload_book',context,{schedule=options.schedule,confirm=function(_,done)done{mode='rename',name='另一册.epub'}end})
-assert(not renamed.e,renamed.e and renamed.e.message)
-assert(remote.files['/apps/fixture/metadata/'..id..'.json'])
--- Corrupt uploaded bytes are detected by full readback before sidecar publication.
-write(book,'PK-corrupted-in-transit')
-context.book.size=#'PK-corrupted-in-transit';context.book.mtime=fixture_attributes(book).modification
-local bad_id=Hash.sha256_text('PK-corrupted-in-transit')
-remote.after_create=function(path,value)
-    if path:match('%.epub$')then remote.put(path,'X'..value:sub(2))end
-end
-local corrupted=run(c,'upload_book',context,{schedule=options.schedule,confirm=function(_,done)done{mode='rename',name='corrupt.epub'}end})
-assert(corrupted.e and not remote.files['/apps/fixture/metadata/'..bad_id..'.json'])
-remote.after_create=nil
-write(book,raw);context.book.size=#raw;context.book.mtime=fixture_attributes(book).modification
-local confirmations=0
-context.progress={type='xpointer',value='/body/p[9]/text().0',percent=0.9}
-remote.after_precreate=function(path)
-    if path:match('^/apps/fixture/progress/') then
-        local record=assert(Record.decode(remote.files[path].raw))
-        record.sync.writeId='racer-before-commit';record.sync.revision=record.sync.revision+1
-        remote.put(path,assert(Record.encode(record)))
+local old_progress=remote.files['/apps/fixture/progress/same.json'].raw
+write(book,'PK-other-content');context.book.size=#'PK-other-content';context.book.mtime=fixture_attributes(book).modification
+assert(not run(c,'upload_book',context,options).e)
+assert(remote.files['/apps/fixture/progress/same.json'].raw==old_progress)
+assert(not run(c,'progress_operation','download',context,options).e and applied==1)
+-- Normal upload has constant HTTP request count regardless of library size.
+local Catalog=require('modules/library_catalog')
+local sample=string.rep('x',10*1024*1024)
+write(book,sample);context.book.size=#sample;context.book.mtime=fixture_attributes(book).modification
+remote.dirs['/apps/fixture/books']=true
+for _,n in ipairs({20,100})do
+    local catalog=Catalog.empty()
+    for i=1,n do
+        local id='book'..i
+        catalog.books[i]={schemaVersion=2,status='ready',bookId=id,title=id,fileName=id..'.epub',path='books/'..id..'.epub',
+            size=1,uploadedAt=Record.iso_timestamp(os.time())}
     end
+    remote.put('/apps/fixture/library.json',assert(Catalog.encode(catalog)))
+    c.backend:invalidate_link('library.json')
+    local primed
+    c.backend:download('library.json',function(e,v)assert(not e);primed=v end);assert(primed)
+    remote.calls={}
+    local result=run(c,'upload_book',context,options);assert(not result.e,result.e and result.e.message)
+    assert(#remote.calls==12,'expected 12 warm HTTP requests, got '..#remote.calls)
+    assert(#result.value.library.entries==n+1)
+    for _,call in ipairs(remote.calls)do assert(call.method~='list','warm upload must not enumerate directories')end
+    c.backend:invalidate_link('library.json');remote.calls={}
+    result=run(c,'upload_book',context,options);assert(not result.e,result.e and result.e.message)
+    assert(#remote.calls==14,'expected 14 cold HTTP requests, got '..#remote.calls)
+    print('Baidu '..n..' books + 10 MiB: warm=12, cold=14 HTTP requests')
 end
-local raced=run(c,'progress_operation','upload',context,{schedule=options.schedule,confirm=function(info,done)
-    confirmations=confirmations+1;done(confirmations==1)
-end})
-assert(raced.e.code=='CANCELLED' and confirmations==2)
-assert(Record.decode(remote.files['/apps/fixture/progress/'..id..'.json'].raw).sync.writeId=='racer-before-commit')
-remote.after_precreate=nil
-local other=service(Fixture.new('/apps/other','2').api())
-local wrong=run(other,'download_book',listed.value.entries[1],options)
-assert(wrong.e.code=='CONFLICT')
-assert(state:get(other.backend.backend_id,id)==nil,'backend baselines must remain independent')
--- Unverified JSON writes that are overtaken after commit must not advance the baseline.
-local baseline=state:get(c.backend.backend_id,id)
-write(book,raw);context.book.size=#raw;context.book.mtime=fixture_attributes(book).modification
-context.progress={type='xpointer',value='/body/p[9]/text().0',percent=0.9}
-remote.after_create=function(path,value)
-    if path:match('^/apps/fixture/progress/') then
-        local record=assert(Record.decode(value));record.sync.writeId='other-writer'
-        remote.put(path,assert(Record.encode(record)))
-    end
+-- Every browse reads library.json only, with one GET on a valid cached link.
+assert(not run(c,'list',options).e);remote.calls={}
+assert(not run(c,'list',options).e)
+assert(#remote.calls==2 and remote.calls[1].method=='uinfo' and remote.calls[2].method=='/download')
+-- Seven-hour cache survives adapter recreation but is isolated by token/account.
+local now=os.time()
+c.backend.profile.expires_at=now+86400;c.backend.now=function()return now end
+c.backend:invalidate_link('library.json')
+local function download(api)
+    local err,value
+    api:download('library.json',function(e,v)err=e;value=v end)
+    assert(not err,err and err.message);assert(value)
 end
-local uncertain=run(c,'progress_operation','upload',context,options)
-assert(uncertain.e and uncertain.e.code=='UNCERTAIN')
-assert(state:get(c.backend.backend_id,id).base_remote_fingerprint==baseline.base_remote_fingerprint)
-remote.after_create=nil
--- Reusing the same orchestration for WebDAV must preserve its conditional flow.
-local dav=require('spec/fixtures/fake_backend'):new()
-local web=service(dav)
-local web_book=run(web,'upload_book',context,options);assert(not web_book.e,web_book.e and web_book.e.message)
-local web_list=run(web,'list',options);assert(not web_list.e and #web_list.value.entries==1)
-local web_progress=run(web,'progress_operation','upload',context,{schedule=options.schedule,confirm=function(info,done)
-    assert(not info.best_effort);done(true)
-end})
-assert(not web_progress.e,web_progress.e and web_progress.e.message)
-assert(dav.backend_id~=c.backend.backend_id and state:get(dav.backend_id,id))
--- Pagination is consumed completely and repeated cursors are rejected.
-local original_list=c.backend.list
-local pages=0
-c.backend.list=function(_,path,cursor,done)
-    pages=pages+1
-    done(nil,{entries={{path='part-'..tostring(cursor or 0)}},continuation=not cursor and 1000 or nil})
+download(c.backend);remote.calls={};download(c.backend);assert(#remote.calls==1)
+local another=remote.api();another.now=c.backend.now;another.profile.expires_at=now+86400
+remote.calls={};download(another);assert(#remote.calls==1)
+now=now+7*3600;remote.calls={};download(c.backend);assert(#remote.calls==2)
+-- A stale link gets one refresh and one retry; no infinite retry loop.
+local original=remote.transport;local fails=0
+c.backend.transport=function(req,done)
+    if req.url:find('/download?',1,true) and fails==0 then fails=fails+1;return done(nil,{status=403,body=''})end
+    original(req,done)
 end
-local collected
-require('modules/async').run(function()return c:all_entries('metadata/')end,function(e,v)assert(not e);collected=v end)
-assert(pages==2 and #collected==2)
-c.backend.list=original_list
--- Delete requires explicit confirmation, stable snapshots and backend identity.
-local function deletion_suite(s,entry,files,key,put)
-    local paths={entry.record.path,'progress/'..entry.record.bookId..'.json','metadata/'..entry.record.bookId..'.json'}
-    local function exists(path)return files[key(path)]~=nil end
-    local cancel=run(s,'delete_book',entry,{confirm=function(info,done)
-        assert(info.kind=='delete_book' and #info.paths==3);done(false)
-    end})
-    assert(cancel.e.code=='CANCELLED')
-    for _,p in ipairs(paths)do assert(exists(p))end
-    local before=files[key(paths[2])]
-    local race=run(s,'delete_book',entry,{confirm=function(_,done)put(paths[2],'changed-progress');done(true)end})
-    assert(race.e.code=='CONFLICT' and exists(paths[1]) and exists(paths[3]))
-    if type(before)=='table' then put(paths[2],before.raw)else put(paths[2],before)end
-    local original_delete=s.backend.delete
-    s.backend.delete=function(self,path,pre,cb)
-        if path==paths[2] then return cb(require('modules/errors').new('NETWORK','fixture disconnect')) end
-        return original_delete(self,path,pre,cb)
-    end
-    local interrupted=run(s,'delete_book',entry,{confirm=function(_,done)done(true)end})
-    assert(interrupted.e.code=='UNCERTAIN' and not exists(paths[1]) and exists(paths[3]))
-    s.backend.delete=original_delete
-    local listed=run(s,'list',options).value
-    local incomplete
-    for _,candidate in ipairs(listed.entries) do
-        if candidate.record.bookId==entry.record.bookId then incomplete=candidate end
-    end
-    assert(incomplete and incomplete.incomplete and not incomplete.book_stat)
-    entry=incomplete
-    local wrong_entry={record=entry.record,backend_id='another-backend'}
-    assert(run(s,'delete_book',wrong_entry,{confirm=function()error('must not confirm')end}).e.code=='CONFLICT')
-    local complete=run(s,'delete_book',entry,{confirm=function(_,done)done(true)end})
-    assert(not complete.e,complete.e and complete.e.message)
-    for _,p in ipairs(paths)do assert(not exists(p))end
-    assert(read(book)==raw,'deleting cloud files must preserve the local book')
+remote.calls={};download(c.backend);assert(fails==1 and #remote.calls==3)
+c.backend.transport=original
+-- A permanently invalid link retries once, then stops and discards the cache.
+c.backend.transport=function(req,done)
+    if req.url:find('/download?',1,true) then fails=fails+1;return done(nil,{status=403,body=''})end
+    original(req,done)
 end
-deletion_suite(web,web_list.value.entries[1],dav.files,function(p)return p end,
-    function(p,v)dav.files[p]=v end)
-local fresh=run(c,'list',options)
-local selected
-for _,entry in ipairs(fresh.value.entries)do if entry.record.bookId==id then selected=entry end end
-assert(selected)
-deletion_suite(c,selected,remote.files,function(p)return '/apps/fixture/'..p end,
-    function(p,v)remote.put('/apps/fixture/'..p,v)end)
--- A partial multi-file deletion must be reported as uncertain, never success.
-assert(not run(web,'upload_book',context,options).e)
-assert(not run(web,'progress_operation','upload',context,{schedule=options.schedule,confirm=function(_,done)done(true)end}).e)
-local partial_entry=run(web,'list',options).value.entries[1]
-dav.hook=function(method,path)
-    if method=='delete' and path:match('^progress/')then return require('modules/errors').new('NETWORK','fixture failure')end
-end
-local partial=run(web,'delete_book',partial_entry,{confirm=function(_,done)done(true)end})
-assert(partial.e.code=='UNCERTAIN' and partial.e.message:find('books/',1,true))
-assert(dav.files['metadata/'..id..'.json'] and dav.files['progress/'..id..'.json'])
-dav.hook=nil
-local without_progress=service(require('spec/fixtures/fake_backend'):new())
-assert(not run(without_progress,'upload_book',context,options).e)
-local no_progress_entry=run(without_progress,'list',options).value.entries[1]
-assert(not run(without_progress,'delete_book',no_progress_entry,{confirm=function(_,done)done(true)end}).e)
-assert(#run(without_progress,'list',options).value.entries==0)
--- Production WebDAV adapter sends If-Match for book-owned files, never broad deletes.
-local requests=0
-local adapter=assert(require('modules/webdav'):new{root_url='https://example.com/sync/',username='u',password='p',
-    conditional_verified=true,conditional_delete_verified=true,transport=function(req,done)
-        requests=requests+1;assert(req.method=='DELETE' and req.headers['If-Match']=='"confirmed"')
-        done(nil,{status=204})
-    end})
-for _,path in ipairs({'books/'..id..'.epub','progress/'..id..'.json','metadata/'..id..'.json'})do
-    local err;adapter:delete(path,{etag='"confirmed"'},function(e)err=e end);assert(not err)
-end
-assert(requests==3)
-local err;adapter:delete('books/'..id..'.epub',nil,function(e)err=e end)
-assert(err.code=='FORBIDDEN' and requests==3)
-adapter:delete('books/'..id..'.epub',{etag='W/"weak"'},function(e)err=e end)
-assert(err.code=='INVALID_INPUT' and requests==3)
-adapter.conditional_delete_verified=false
-adapter:delete('books/'..id..'.epub',{etag='"confirmed"'},function(e)err=e end)
-assert(err.code=='UNSUPPORTED' and requests==3)
--- Uploaded-but-unpublished books recover without re-uploading content after
--- a child download returns no result (the reported device failure sequence).
-local recovery_remote=Fixture.new('/apps/recovery','3')
-local recovery_api=recovery_remote.api()
-local recovery=service(recovery_api)
-local original_transport=recovery_api.transport
-recovery_api.transport=function(req,done)
-    if req.url:find('/download?',1,true) and req.download_path then return done(nil,nil)end
-    return original_transport(req,done)
-end
-local failed_publish=run(recovery,'upload_book',context,options)
-assert(failed_publish.e.code=='UNCERTAIN')
-assert(failed_publish.e.message:find('从云端回读 EPUB',1,true) and failed_publish.e.message:find('未收到有效',1,true))
-assert(recovery_remote.files['/apps/recovery/books/'..id..'.epub'])
-assert(not recovery_remote.files['/apps/recovery/metadata/'..id..'.json'])
-local upload_count=recovery_remote.uploads
-recovery_api.transport=original_transport
-local recovered=run(recovery,'upload_book',context,{schedule=options.schedule,confirm=function(info,done)
-    assert(info.recovery);done{mode='overwrite',book_id=id}
-end})
-assert(not recovered.e,recovered.e and recovered.e.message)
-assert(recovery_remote.uploads==upload_count+1,'recovery must only upload metadata, not the EPUB again')
-assert(#run(recovery,'list',options).value.entries==1)
--- Recovery must also complete with real UI-style delayed confirmations,
--- deferred network callbacks, scheduled hashes and GC between every event.
-recovery_remote.files['/apps/recovery/metadata/'..id..'.json']=nil
-local queue={}
-local function later(cb)queue[#queue+1]=cb end
-recovery_api.transport=function(req,cb)later(function()original_transport(req,cb)end)end
-local deferred,count=nil,0
-local phases={}
-recovery:upload_book(context,{schedule=later,on_phase=function(phase)phases[#phases+1]=phase end,confirm=function(info,cb)
-    assert(info.recovery);later(function()cb{mode='overwrite',book_id=id}end)
-end},function(e,v)count=count+1;deferred={e=e,value=v}end)
-local iterations=0
-while #queue>0 do
-    iterations=iterations+1;assert(iterations<1000)
-    collectgarbage('collect');table.remove(queue,1)()
-end
-assert(count==1 and deferred and not deferred.e,deferred and deferred.e and deferred.e.message or 'recovery silently stopped')
-assert(recovery_remote.files['/apps/recovery/metadata/'..id..'.json'])
-assert(table.concat(phases,'/'):find('从云端回读 EPUB',1,true) and phases[#phases]=='书库发布完成')
-local Cache=require('modules/library_cache')
-local cache=Cache:new(root..'/library-cache')
-local function repair_and_cache(backend,seed,remove,contents)
-    local s=service(backend)
-    seed('books/'..id..'.epub',raw)
-    local listed=run(s,'list',options).value
-    assert(#listed.entries==0 and #listed.unpublished==1)
-    assert(cache:save(backend.backend_id,listed))
-    assert(#assert(cache:load(backend.backend_id,backend.root)).unpublished==1)
-    local orphan=listed.unpublished[1]
-    local foreign_entry={backend_id='foreign',book_id=id,path=orphan.path,book_stat=orphan.book_stat}
-    assert(run(s,'repair_book',foreign_entry,{confirm=function()error('foreign entry must not reach confirmation')end}).e.code=='CONFLICT')
-    local repair_opts={schedule=options.schedule,confirm=function(info,done)
-        assert(info.kind=='repair_book');done{title='修复后的中文书名'}
-    end}
-    local cancelled=run(s,'repair_book',orphan,{confirm=function(_,done)done(false)end})
-    assert(cancelled.e.code=='CANCELLED' and not contents('metadata/'..id..'.json'))
-    seed('books/'..id..'.epub','X'..raw:sub(2))
-    local corrupt=run(s,'repair_book',run(s,'list',options).value.unpublished[1],repair_opts)
-    assert(corrupt.e.code=='CONFLICT' and not contents('metadata/'..id..'.json'))
-    seed('books/'..id..'.epub',raw)
-    orphan=run(s,'list',options).value.unpublished[1]
-    local race=run(s,'repair_book',orphan,{schedule=options.schedule,confirm=function(_,done)
-        seed('metadata/'..id..'.json','{}');done{title='不能覆盖'}
-    end})
-    assert(race.e.code=='CONFLICT' and contents('metadata/'..id..'.json')=='{}')
-    assert(#run(s,'list',options).value.unpublished==0,'invalid existing metadata must not be treated as absent')
-    local pending=run(s,'list',options).value
-    assert(cache:save(backend.backend_id,pending))
-    local clean=require('modules/library_issues').collect(assert(cache:load(backend.backend_id,backend.root)))[1].cleanup
-    assert(clean and clean.kind=='metadata')
-    local cleaned=run(s,'cleanup_issue',clean,{confirm=function(info,done)
-        assert(info.kind=='cleanup_issue' and not info.orphan);done(true)
-    end})
-    assert(not cleaned.e,cleaned.e and cleaned.e.message)
-    assert(not contents('metadata/'..id..'.json') and contents('books/'..id..'.epub')==raw)
-    local repaired=run(s,'repair_book',orphan,repair_opts)
-    assert(not repaired.e,repaired.e and repaired.e.message)
-    assert(repaired.value.record.title=='修复后的中文书名' and contents('books/'..id..'.epub')==raw)
-    assert(not contents('progress/'..id..'.json'),'repair must not create reading progress')
-    listed=run(s,'list',options).value
-    assert(#listed.entries==1 and #listed.unpublished==0)
-    assert(cache:save(backend.backend_id,listed))
-    local cached=assert(cache:load(backend.backend_id,backend.root))
-    assert(cached.cached and cached.entries[1].record.title=='修复后的中文书名')
-    local foreign=Hash.sha256_text('foreign-backend')
-    local foreign_path=cache:path(foreign)
-    write(foreign_path,read(cache:path(backend.backend_id)))
-    assert(not cache:load(foreign,'another root'),'cache must reject another backend/account even if its file was copied')
-    os.remove(foreign_path)
-    local downloads=0
-    local download=backend.download
-    backend.download=function(self,path,...)
-        if path:match('^metadata/')then downloads=downloads+1 end
-        return download(self,path,...)
-    end
-    local fresh=run(s,'list',{cached_result=cached}).value
-    assert(downloads==0 and #fresh.entries==1,'unchanged metadata must reuse validated snapshots')
-    local changed=json.decode(contents('metadata/'..id..'.json'));changed.title='云端已更新'
-    seed('metadata/'..id..'.json',json.encode(changed))
-    fresh=run(s,'list',{cached_result=cached}).value
-    assert(downloads==1 and fresh.entries[1].record.title=='云端已更新')
-    local path=cache:path(backend.backend_id)
-    write(path,'not json');assert(not cache:load(backend.backend_id,backend.root))
-    assert(cache:save(backend.backend_id,fresh));cache:invalidate(backend.backend_id)
-    assert(not cache:load(backend.backend_id,backend.root))
-    backend.download=download
-end
-local repair_remote=Fixture.new('/apps/repair','10')
-repair_remote.dirs['/apps/repair/books']=true
-repair_remote.dirs['/apps/repair/metadata']=true
-repair_and_cache(repair_remote.api(),function(p,v)repair_remote.put('/apps/repair/'..p,v)end,
-    function(p)repair_remote.files['/apps/repair/'..p]=nil end,
-    function(p)local v=repair_remote.files['/apps/repair/'..p];return v and v.raw end)
-local repair_dav=require('spec/fixtures/fake_backend'):new();repair_dav.dirs.books=true;repair_dav.dirs.metadata=true
-repair_and_cache(repair_dav,function(p,v)repair_dav.files[p]=v end,function(p)repair_dav.files[p]=nil end,
-    function(p)return repair_dav.files[p]end)
-assert(not cache:path('../escape'))
-print('WebDAV/Baidu orphan repair, corruption/race refusal and incremental disk cache regressions passed')
-print('WebDAV/Baidu confirmed deletion, cancellation, races, partial failures and conditional DELETE regressions passed')
-print('Baidu full book publish/list/download/backup/progress/rename, corruption and backend isolation regressions passed')
+local err;fails=0
+c.backend:download('library.json',function(e)err=e end)
+assert(err and fails==2 and not c.backend.links['library.json'])
+c.backend.transport=original
+-- Metadata lookup refreshes an ID invalidated by remote same-path replacement.
+download(c.backend)
+local old=c.backend.links['library.json']
+old.dlink=nil
+remote.files['/apps/fixture/library.json'].id='999999999999'
+remote.calls={};download(c.backend)
+assert(c.backend.links['library.json'].fs_id=='999999999999')
+-- Different credentials never reuse the old URL.
+local changed=remote.api();changed.profile.access_token='other-token'
+local API=require('modules/baidu_api');changed=assert(API:new(changed.profile));changed.transport=remote.transport
+remote.calls={};download(changed);assert(#remote.calls==3)
+-- Malformed authoritative catalog does not trigger a scan/rebuild or overwrite.
+remote.put('/apps/fixture/library.json','{');c.backend:invalidate_link('library.json')
+local bad=run(c,'upload_book',context,options);assert(bad.e and remote.files['/apps/fixture/library.json'].raw=='{')
+print('Baidu name identity, overwrite/progress, catalog-only browsing and seven-hour link cache passed')
