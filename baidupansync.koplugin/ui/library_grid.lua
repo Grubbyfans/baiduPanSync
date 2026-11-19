@@ -164,8 +164,7 @@ function Grid:options()
 end
 
 function Grid:select(entry)
-    if entry.incomplete then return self:details(entry) end
-    if not self.closed then self.on_download(entry) end
+    if not self.closed then return self:details(entry) end
     return true
 end
 function Grid:details(entry)
@@ -174,7 +173,10 @@ function Grid:details(entry)
     dialog=Buttons:new{title=self.title_for(r)..'\n\n文件：'..Meta.filename(r)..
         string.format('\n大小：%.2f MiB\n版本：%s',r.size/1048576,r.bookId:sub(1,12))..
         (entry.incomplete and '\n云端 EPUB 缺失或大小不符。可删除剩余记录，或重新上传原书恢复。' or ''),buttons={
-        {{text=_('下载书籍'),enabled=not entry.incomplete,callback=function()UI:close(dialog);self:select(entry)end}},
+        {{text=_('下载书籍'),enabled=not entry.incomplete and self.on_download~=nil,callback=function()
+            UI:close(dialog)
+            if not self.closed and not entry.incomplete and self.on_download then self.on_download(entry) end
+        end}},
         {{text=_('删除云端书籍'),enabled=self.on_delete~=nil,callback=function()
             UI:close(dialog)
             if not self.closed and self.on_delete then self.on_delete(entry) end
