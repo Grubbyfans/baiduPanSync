@@ -91,7 +91,7 @@ function M:run(kind,opts,fn,done)
         for i=#self.cleanup,1,-1 do pcall(self.cleanup[i]) end
         self.active=false
         if e then
-            if (kind=='upload_book' or kind=='progress_upload' or kind=='delete_book' or kind=='repair_book') and task.state=='verifying'
+            if (kind=='upload_book' or kind=='progress_upload' or kind=='delete_book' or kind=='repair_book' or kind=='cleanup_issue') and task.state=='verifying'
                 and not e.definite and e.code~='UNCERTAIN' and e.outcome~='uncertain' then
                 e=Errors.new('UNCERTAIN','云端修改已发出但未完整核验：'..e.message,{outcome='uncertain'})
             end
@@ -271,9 +271,11 @@ function M:listing(cached)
                 end) end
                 if e then
                     if e.code~='INVALID_INPUT' and e.code~='UNSUPPORTED' then error(e,0) end
-                    issues[#issues+1]={path=entry.path,message=e.message}
+                    issues[#issues+1]={path=entry.path,message=e.message,book_id=id,stat=entry,
+                        backend_id=self.backend.backend_id,cleanup_allowed=e.code=='INVALID_INPUT'}
                 elseif not snapshot or snapshot.record.bookId~=id then
-                    issues[#issues+1]={path=entry.path,message='发布记录身份与文件名不一致'}
+                    issues[#issues+1]={path=entry.path,message='发布记录身份与文件名不一致',book_id=id,stat=entry,
+                        backend_id=self.backend.backend_id,cleanup_allowed=snapshot~=nil}
                 else
                     local book=candidates[snapshot.record.path]
                     if book and book.type=='file' and book.size==snapshot.record.size then
@@ -559,6 +561,44 @@ function M:delete_book(entry,opts,done)
         end
         self:step('committing_local')
         return {record=valid,deleted=deleted}
+    end,done)
+end
+-- Explicitly remove only one versioned orphan or invalid sidecar. No broad
+-- cleanup, no deletion based solely on cached hints, no associated progress loss.
+function M:cleanup_issue(issue,opts,done)
+    return self:run('cleanup_issue',opts,function(o)
+        local id=issue.book_id
+        local orphan=issue.kind=='unpublished'
+        local path=orphan and ('books/'..tostring(id)..'.epub') or ('metadata/'..tostring(id)..'.json')
+        if issue.backend_id~=self.backend.backend_id or not Hash.is_sha256_hex(id) or issue.path~=path
+            or (not orphan and issue.kind~='metadata') then fail('FORBIDDEN','待处理条目不属于当前后端或路径无效，请刷新书库') end
+        self:step('reading_remote')
+        if self.backend.kind~='baidu' then self:ready(true) end
+        local before=self:optional_stat(path)
+        if not before or before.type~='file' or not same_file(before,issue.stat) then fail('CONFLICT','待清理文件已变化，请刷新后重新选择') end
+        local condition=self:condition({stat=before})
+        if not condition then fail('UNSUPPORTED','此服务无法安全确认清理目标版本') end
+        local function check()
+            if not same_file(before,self:optional_stat(path)) then fail('CONFLICT','待清理文件版本已变化，未删除') end
+            if orphan then
+                if self:optional_stat('metadata/'..id..'.json') then fail('CONFLICT','此书已有发布记录，不再是未发布文件，请刷新书库') end
+            elseif before.size<=65536 then
+                local e,snapshot=A.await(function(cb)A.run(function()return self:read(path,Meta.decode)end,cb)end)
+                if e and e.code~='INVALID_INPUT' then error(e,0) end
+                if snapshot and snapshot.record.bookId==id then fail('CONFLICT','发布记录有效，不能按损坏记录清理；请刷新书库') end
+            end
+        end
+        check()
+        self:step('awaiting_confirm')
+        self:confirm({kind='cleanup_issue',backend=self.backend.root,path=path,orphan=orphan,
+            best_effort=self.backend.kind=='baidu'},o)
+        self:step('rechecking');self:guard(nil,o);check()
+        self:step('writing')
+        self:call('delete',path,condition)
+        self:step('verifying')
+        if self:optional_stat(path) then fail('UNCERTAIN','清理后文件仍存在，请刷新核对','uncertain') end
+        self:step('committing_local')
+        return {path=path,cleaned=true,orphan=orphan}
     end,done)
 end
 function M:download_book(entry,opts,done)

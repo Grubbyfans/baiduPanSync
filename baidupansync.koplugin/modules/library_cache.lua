@@ -49,6 +49,10 @@ function M:load(id,root)
     for _,issue in ipairs(result.issues) do
         if type(issue)~='table' or type(issue.path)~='string' or #issue.path>1024
             or type(issue.message)~='string' or #issue.message>2048 then return nil end
+        if issue.stat and not stat(issue.stat) then return nil end
+        if issue.book_id and not Hash.is_sha256_hex(issue.book_id) then return nil end
+        if issue.backend_id and issue.backend_id~=id then return nil end
+        if issue.cleanup_allowed~=nil and type(issue.cleanup_allowed)~='boolean' then return nil end
     end
     return result
 end

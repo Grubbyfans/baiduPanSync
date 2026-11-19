@@ -20,6 +20,16 @@ local function rename(filename,done)
 end
 function M.confirm(info,done)
     local backend=info.backend_label or info.backend
+    if info.kind=='cleanup_issue' then
+        local text=backend..'\n目标：'..info.path..'\n\n'..
+            (info.orphan and '只删除这一个未发布的云端 EPUB，云端进度保留。'
+                or '只删除这一个损坏的书库发布记录，EPUB 和云端进度保留。')..
+            '\n本机文件保留。请勿在其他设备同时发布或修改此书。删除无法在插件内撤销。'
+        if info.best_effort then text=text..'\n百度仅能尽力检查版本，无法原子锁定目标。' end
+        UI:show(Confirm:new{title='确认清理待处理条目',text=text,ok_text='确认清理',cancel_text='取消',
+            ok_callback=function()done(true)end,cancel_callback=function()done(false)end})
+        return
+    end
     if info.kind=='repair_book' then
         local input
         input=Input:new{title='检查并补全发布\n'..backend..' / '..info.entry.path..
@@ -121,10 +131,10 @@ function M.library_entries(result,state)
     end)
     return entries
 end
-function M.library(result,on_download,page,on_show,on_close,state,on_delete,on_repair,on_refresh,on_switch_backend)
+function M.library(result,on_download,page,on_show,on_close,state,on_delete,on_repair,on_refresh,on_switch_backend,on_cleanup)
     local grid=require('ui/library_grid'):new{result=result,on_download=on_download,
         page=page,state=state,on_close=on_close,title_for=M.library_title,filter=M.library_entries,on_delete=on_delete,
-        on_repair=on_repair,on_refresh=on_refresh,on_switch_backend=on_switch_backend}
+        on_repair=on_repair,on_refresh=on_refresh,on_switch_backend=on_switch_backend,on_cleanup=on_cleanup}
     if on_show then on_show(grid) end
     UI:show(grid)
     return grid

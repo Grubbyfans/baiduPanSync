@@ -11,8 +11,8 @@ describe("plugin entry point", function()
 
     it("loads metadata and exposes a version", function()
         assert.is_true(type(meta.fullname) == "string" and #meta.fullname > 0)
-        assert.is_equal("0.9.6", meta.version)
-        assert.is_equal("0.9.6", Plugin.version)
+        assert.is_equal("0.9.7", meta.version)
+        assert.is_equal("0.9.7", Plugin.version)
     end)
 
     it("initializes a local store and service under the settings directory", function()

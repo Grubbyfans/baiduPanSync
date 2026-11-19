@@ -388,6 +388,61 @@ describe('WebDAV D/E/F orchestration',function()
         pending(nil,{});assert.is_equal(1,count);assert.is_nil(backend.files['should-not-exist'])
     end)
 
+    it('cleans only a damaged publication and preserves EPUB and progress for repair',function()
+        local entry=published();local id=entry.record.bookId;local path='metadata/'..id..'.json'
+        backend.files[path]='{}';backend.files['progress/'..id..'.json']='keep progress'
+        local listed=run('list',options()).value
+        local items=require('modules/library_issues').collect(listed)
+        assert.is_equal(1,#items);assert.is_truthy(items[1].cleanup)
+        local cache=require('modules/library_cache'):new(root..'/cache')
+        assert(cache:save(backend.backend_id,listed))
+        local cached=cache:load(backend.backend_id,backend.root)
+        local issue=require('modules/library_issues').collect(cached)[1].cleanup
+        local cleaned=run('cleanup_issue',issue,options())
+        assert.is_nil(cleaned.e);assert.is_nil(backend.files[path])
+        assert.is_equal(read(book),backend.files[entry.record.path])
+        assert.is_equal('keep progress',backend.files['progress/'..id..'.json'])
+        local orphan=run('list',options()).value.unpublished[1]
+        local repaired=run('repair_book',orphan,options{confirm=function(_,cb)cb{title='恢复后的书籍'}end})
+        assert.is_nil(repaired.e);assert.is_truthy(backend.files[path])
+    end)
+    it('rejects valid or future-version metadata even when a cached hint requests cleanup',function()
+        local entry=published();local id=entry.record.bookId;local path='metadata/'..id..'.json'
+        local hint={kind='metadata',backend_id=backend.backend_id,book_id=id,path=path,stat=entry.stat}
+        assert.is_equal('CONFLICT',run('cleanup_issue',hint,options()).e.code)
+        backend.files[path]='{"schemaVersion":99}'
+        local issue=run('list',options()).value.issues[1]
+        assert.is_false(issue.cleanup_allowed)
+        hint.stat=issue.stat
+        assert.is_equal('UNSUPPORTED',run('cleanup_issue',hint,options()).e.code)
+        assert.is_truthy(backend.files[entry.record.path]);assert.is_truthy(backend.files[path])
+    end)
+    it('requires confirmation and rejects a version that changes during cleanup',function()
+        local entry=published();local path='metadata/'..entry.record.bookId..'.json';backend.files[path]='{'
+        local issue=require('modules/library_issues').collect(run('list',options()).value)[1].cleanup
+        assert.is_equal('CANCELLED',run('cleanup_issue',issue,options{confirm=function(_,cb)cb(false)end}).e.code)
+        assert.is_equal('{',backend.files[path])
+        local changed=run('cleanup_issue',issue,options{confirm=function(_,cb)backend.files[path]='new bytes';cb(true)end})
+        assert.is_equal('CONFLICT',changed.e.code);assert.is_equal('new bytes',backend.files[path])
+    end)
+    it('deletes only an unpublished EPUB and refuses one published during confirmation',function()
+        local entry=published();local id=entry.record.bookId;local meta='metadata/'..id..'.json'
+        local raw=backend.files[meta];backend.files[meta]=nil;backend.files['progress/'..id..'.json']='keep'
+        local hint=require('modules/library_issues').collect(run('list',options()).value)[1].cleanup
+        local raced=run('cleanup_issue',hint,options{confirm=function(_,cb)backend.files[meta]=raw;cb(true)end})
+        assert.is_equal('CONFLICT',raced.e.code);assert.is_truthy(backend.files[entry.record.path])
+        backend.files[meta]=nil
+        assert.is_nil(run('cleanup_issue',hint,options()).e)
+        assert.is_nil(backend.files[entry.record.path]);assert.is_equal('keep',backend.files['progress/'..id..'.json'])
+    end)
+    it('rejects foreign and arbitrary cleanup paths before any deletion',function()
+        local id=string.rep('a',64)
+        local hint={kind='metadata',backend_id='foreign',book_id=id,path='metadata/'..id..'.json'}
+        assert.is_equal('FORBIDDEN',run('cleanup_issue',hint,options()).e.code)
+        hint.backend_id=backend.backend_id;hint.path='../credentials.json'
+        assert.is_equal('FORBIDDEN',run('cleanup_issue',hint,options()).e.code)
+        assert.is_equal(0,#backend.writes)
+    end)
     it('times out a stalled qualification without leaving temporary write permissions',function()
         local timers,err={}
         backend.conditional_verified=false;backend.conditional_delete_verified=false

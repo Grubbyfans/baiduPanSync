@@ -20,6 +20,7 @@ local UI=require('ui/uimanager')
 local BB=require('ffi/blitbuffer')
 local Cover=require('modules/book_cover')
 local Meta=require('modules/book_metadata')
+local Issues=require('modules/library_issues')
 local _=require('gettext')
 local Grid=InputContainer:extend{covers_fullscreen=true,dithered=true}
 
@@ -74,18 +75,37 @@ function Grid:updateResult(result)
     self.result=result;self:rebuild()
 end
 function Grid:unpublished()
+    return self:pending()
+end
+function Grid:pendingDetails(item)
+    local dialog,buttons=nil,{}
+    local function action(text,fn,entry)
+        if fn then buttons[#buttons+1]={{text=text,callback=function()
+            UI:close(dialog);if not self.closed then fn(entry)end
+        end}} end
+    end
+    if item.repair then action('校验并补全发布',self.on_repair,item.repair)end
+    if item.cleanup then action(item.repair and '删除未发布 EPUB' or '清理损坏的发布记录',self.on_cleanup,item.cleanup)end
+    if item.entry then action('删除剩余云端文件与进度',self.on_delete,item.entry)end
+    buttons[#buttons+1]={{text='返回待处理列表',callback=function()UI:close(dialog);if not self.closed then self:pending()end end}}
+    dialog=Buttons:new{title=item.title..'\n'..item.path..'\n\n原因：'..item.reason,buttons=buttons}
+    UI:show(dialog)
+    return dialog
+end
+function Grid:pending()
     local buttons,dialog={},nil
-    for _,entry in ipairs(self.result.unpublished or {}) do
-        local selected=entry
-        buttons[#buttons+1]={{text=string.format('未发布 · %s… · %.2f MiB',entry.book_id:sub(1,16),entry.size/1048576),
+    for _,item in ipairs(Issues.collect(self.result)) do
+        local selected=item
+        buttons[#buttons+1]={{text=item.title,
             callback=function()
                 UI:close(dialog)
-                if not self.closed and self.on_repair then self.on_repair(selected) end
+                if not self.closed then self:pendingDetails(selected) end
             end}}
     end
     buttons[#buttons+1]={{text='返回书库',callback=function()UI:close(dialog)end}}
-    dialog=Buttons:new{title='未发布书籍\n选择一本，填写书名后校验并补全发布。',buttons=buttons,rows_per_page=6}
+    dialog=Buttons:new{title='待处理书籍\n选择条目查看原因，再决定修复或清理。',buttons=buttons,rows_per_page=6}
     UI:show(dialog)
+    return dialog
 end
 function Grid:onSetDimensions()
     self.dimen.w=Screen:getWidth();self.dimen.h=Screen:getHeight()
@@ -111,6 +131,7 @@ end
 
 function Grid:options()
     local dialog
+    local pending_count=#Issues.collect(self.result)
     dialog=Buttons:new{title=_('书库选项'),buttons={
         {{text=_('按书名排序'),callback=function()
             UI:close(dialog);self.state.order='name';self.page=1;self:rebuild()
@@ -121,9 +142,9 @@ function Grid:options()
         {{text=_('刷新书库'),enabled=self.on_refresh~=nil,callback=function()
             UI:close(dialog);if not self.closed and self.on_refresh then self.on_refresh() end
         end}},
-        {{text=string.format('修复未发布书籍（%d）',#(self.result.unpublished or {})),
-            enabled=self.on_repair~=nil and #(self.result.unpublished or {})>0,callback=function()
-                UI:close(dialog);if not self.closed then self:unpublished() end
+        {{text=string.format('待处理书籍（%d）',pending_count),
+            enabled=pending_count>0,callback=function()
+                UI:close(dialog);if not self.closed then self:pending() end
             end}},
         {{text=_('书库信息'),callback=function()
             UI:close(dialog)
@@ -201,14 +222,15 @@ end
 
 function Grid:build()
     local w,h=self.dimen.w,self.dimen.h
+    local pending_count=#Issues.collect(self.result)
     local caption=self.result.refreshing and '云端书库 · 缓存刷新中' or self.result.cached and '云端书库 · 本机缓存' or '云端书库'
     local title=Title:new{width=w,fullscreen=true,align='center',title=caption,
         subtitle=self.result.backend_label or self.result.backend,
         left_icon='appbar.search',left_icon_tap_callback=function()self:search()end,
         close_callback=function()self:close()end}
     local toolbar_buttons={{
-        {text=#(self.result.unpublished or {})>0 and string.format('排序 / 管理 · 未发布 %d',#self.result.unpublished)
-            or #self.result.issues>0 and _('排序 / 管理（有异常）') or _('排序 / 管理'),callback=function()self:options()end},
+        {text=pending_count>0 and string.format('待处理 · %d',pending_count) or _('排序 / 管理'),
+            callback=function()if pending_count>0 then self:pending()else self:options()end end},
         {text=self.state.query~='' and _('清除搜索') or _('搜索书籍'),callback=function()
             if self.state.query and self.state.query~='' then
                 self.state.query='';self.page=1;self:rebuild()
@@ -266,7 +288,7 @@ function Grid:build()
         body:free()
         body=Center:new{dimen=Geom:new{w=w,h=h-header-footer:getSize().h},
             Text:new{width=math.floor(w*0.8),alignment='center',face=Font:getFace('cfont',20),
-                text=#self.result.entries==0 and #(self.result.unpublished or {})>0 and '发现未发布的 EPUB\n请在“排序 / 管理”中选择“修复未发布书籍”。'
+                text=#self.result.entries==0 and pending_count>0 and '发现待处理书籍\n点击“待处理”查看原因并修复或清理。'
                     or #self.result.entries==0 and _('书库为空\n在另一设备上传 EPUB 后即可浏览。')
                     or _('未找到匹配书籍\n请更换关键词或清除搜索。')}}
     end

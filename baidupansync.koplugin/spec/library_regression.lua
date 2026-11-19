@@ -97,7 +97,7 @@ shown.cancel_callback();assert(choice==false)
 local orphan={book_id=string.rep('a',64),path='books/'..string.rep('a',64)..'.epub',size=1024}
 grid.result.unpublished={orphan};local repaired,refreshed
 grid.on_repair=function(entry)repaired=entry end;grid.on_refresh=function()refreshed=true end
-grid:options();shown.buttons[4][1].callback();shown.buttons[1][1].callback()
+grid:options();shown.buttons[4][1].callback();shown.buttons[1][1].callback();shown.buttons[1][1].callback()
 assert(repaired==orphan and not grid.closed)
 grid:options();shown.buttons[3][1].callback();assert(refreshed)
 Cloud.confirm({kind='repair_book',backend='fixture',entry=orphan},function(v)choice=v end)

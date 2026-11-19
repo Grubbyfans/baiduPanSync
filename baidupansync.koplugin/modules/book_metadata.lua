@@ -45,7 +45,7 @@ end
 function M.decode(raw)
     if type(raw)~='string' or #raw>65536 then return invalid() end
     local ok,v=pcall(json.decode,raw);if not ok then return invalid() end
-    if type(v)=='table' and v.schemaVersion~=1 then return nil,Errors.new('UNSUPPORTED','书籍元数据版本不受支持，请升级插件') end
+    if type(v)=='table' and v.schemaVersion~=nil and v.schemaVersion~=1 then return nil,Errors.new('UNSUPPORTED','书籍元数据版本不受支持，请升级插件') end
     return M.validate(v)
 end
 function M.encode(v)
