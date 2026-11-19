@@ -1,0 +1,54 @@
+baidupansync.koplugin/spec/baidu_cloud_regression.lua
+  s_29cedbef3ff996::t_87e75211cafb4e 307-315
+baidupansync.koplugin/modules/book_metadata.lua
+  s_29cedbef3ff996::t_e0ce6df3cfce3e 48
+baidupansync.koplugin/spec/unit/cloud_service_spec.lua
+  s_29cedbef3ff996::t_e0ce6df3cfce3e 393
+  s_29cedbef3ff996::t_87e75211cafb4e 391-392,394-445
+baidupansync.koplugin/spec/library_regression.lua
+  s_29cedbef3ff996::t_41e1394be9d889 100
+baidupansync.koplugin/main.lua
+  s_29cedbef3ff996::t_f455effcc7638c 193,251-252,283,312,317-320,356
+  s_29cedbef3ff996::t_154bbfd8187441 2,24
+baidupansync.koplugin/spec/unit/library_issues_spec.lua
+  s_29cedbef3ff996::t_87e75211cafb4e 1-45
+baidupansync.koplugin/modules/cloud_service.lua
+  s_29cedbef3ff996::t_a0ed020d0fe53c 94,274-275,277-278,566-601
+  s_29cedbef3ff996::t_b2fbfa730e39c9 602-603
+baidupansync.koplugin/modules/library_issues.lua
+  s_29cedbef3ff996::t_a0ed020d0fe53c 1-20,23-31
+  s_29cedbef3ff996::t_6d00c4b55f10b0 21-22
+baidupansync.koplugin/modules/library_cache.lua
+  s_29cedbef3ff996::t_a0ed020d0fe53c 52-55
+baidupansync.koplugin/ui/cloud_dialog.lua
+  s_29cedbef3ff996::t_f455effcc7638c 23-32,134,137
+baidupansync.koplugin/ui/library_grid.lua
+  s_29cedbef3ff996::t_41e1394be9d889 134,145-146,225,232-233,291
+  s_29cedbef3ff996::t_f455effcc7638c 23,78-95,97-99,102,106,108,147
+README.md
+  s_29cedbef3ff996::t_1810158d7f55c3 7,28-31
+baidupansync.koplugin/README.md
+  s_29cedbef3ff996::t_249acacb6d519e 3,266-272
+baidupansync.koplugin/_meta.lua
+  s_29cedbef3ff996::t_1c5c40795cee59 5
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_29cedbef3ff996::t_e8fdcba5836fe6 14-15
+阶段DEF验收记录.md
+  s_29cedbef3ff996::t_5e4b328c495e0e 89-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e2d8dcd4cd127d8e72e16683a7f3ef2a8bd1fa71",
+  "prompts": {},
+  "sessions": {
+    "s_29cedbef3ff996": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1ee60-caf6-7890-b764-dd71f3850999",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
