@@ -3,8 +3,9 @@
 基于 KOReader 的书籍与阅读进度同步插件（目标后端：自建 WebDAV、百度网盘）。
 
 - 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.8，开发基线）
+- 独立 Android App 方案：[Android阅读App_技术方案.md](Android阅读App_技术方案.md)（Kotlin / Compose / WebView，精准进度同步、本地离线朗读；待新项目实施）
 - 文档分析：[分析结果.md](分析结果.md)
-- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.10.8：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
+- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.10.9：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
 - 安装/使用/测试说明：[baidupansync.koplugin/README.md](baidupansync.koplugin/README.md)
 - 阶段 A 验收记录：[阶段A验收记录.md](阶段A验收记录.md)（已通过）
 - 阶段 B 验收记录：[阶段B验收记录.md](阶段B验收记录.md)
@@ -13,7 +14,7 @@
 
 0.10.1：点击书籍先打开详情，只有点击详情中的“下载书籍”才启动下载；返回书库不会下载。
 
-当前版本 **0.10.8**，改为按文件名书名识别书籍、同名直接覆盖并保留进度；书库仅使用独立 `library.json`，每天首次进入更新，本机持久缓存封面，并提供“主动更新书库”。百度下载链接缓存 7 小时，上传使用按任务动态域名和分片协议。按单用户交替使用设备设计，不做多设备并发保护。
+当前版本 **0.10.9**，改为按文件名书名识别书籍、同名直接覆盖并保留进度；书库仅使用独立 `library.json`，每天首次进入更新，本机持久缓存封面，并提供“主动更新书库”。百度下载链接缓存 7 小时，上传使用按任务动态域名和分片协议。按单用户交替使用设备设计，不做多设备并发保护。本次仅新增 Android App 技术方案及版本记录，插件运行行为和云端协议未变。
 
 **0.10.x 之间升级保留现有数据，无需清空网盘；仅 0.10.0 之前的旧结构不兼容。插件不会自动清空网盘。** 运行说明以 [插件 README](baidupansync.koplugin/README.md) 为准；历史技术方案及旧验收记录描述的是旧实现。新版验证见 [0.10.7验收记录.md](0.10.7验收记录.md)，真机待验收。0.9.6 及此前核心闭环的历史通过结果不代替本版验收。
 
@@ -30,6 +31,8 @@ KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
 已提供零依赖 Node.js 服务：[serve/README.md](serve/README.md)。修改 `serve/config.json` 的端口、账户和存储目录后，运行 `node serve/server.js`，可测试插件的 C1 上传下载及条件写入。
 
 ## 历史版本记录
+
+0.10.9：新增独立 Android 阅读 App 技术方案，明确原生界面、WebView 阅读、KOReader 精准双向同步、本地离线 TTS、兼容协议与分阶段验收；尚未创建 Android 工程。插件只更新版本标识和文档。
 
 以下为历史行为，0.10.0 的现行规则以上文和插件 README 为准。
 
