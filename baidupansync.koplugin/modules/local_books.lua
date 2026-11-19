@@ -23,8 +23,8 @@ function M:load(root)
     local count=0
     for id,b in pairs(v.books)do
         count=count+1
-        if count>M.MAX_BOOKS or not Name.valid(id) or type(b)~='table' or not within(root,b.path)
-            or Name.id(b.path:match('([^/]+)$'))~=id or type(b.size)~='number' or b.size<0
+        if count>M.MAX_BOOKS or not Name.local_valid(id) or type(b)~='table' or not within(root,b.path)
+            or Name.local_id(b.path:match('([^/]+)$'))~=id or type(b.size)~='number' or b.size<0
             or type(b.mtime)~='number' then return nil,err('INVALID_INPUT','本机书籍索引无效，请重新检查本机书籍') end
     end
     return v
@@ -71,7 +71,7 @@ function M:scan(root,opts,done)
                     if st.mode=='directory' and not name:match('^%.baidupansync%-') and not name:match('%.sdr$') then
                         stack[#stack+1]=path
                     elseif st.mode=='file' and name:match('%.[Ee][Pp][Uu][Bb]$') and not name:match('%.backup%-%x+%.epub$') then
-                        local id,ne=Name.id(name);if not id then error(err('INVALID_INPUT',ne.message..'\n文件：'..path),0)end
+                        local id,ne=Name.local_id(name);if not id then error(err('INVALID_INPUT',ne.message..'\n文件：'..path),0)end
                         count=count+1;if count>M.MAX_BOOKS then error(err('INVALID_INPUT','本机 EPUB 超过一万本，检查已停止'),0)end
                         if books[id] then
                             duplicates[id]=duplicates[id] or {books[id].path}
@@ -118,7 +118,7 @@ function M:find(root,id)
 end
 function M:register(root,id,path)
     local v=self:require_index(root)
-    if not within(root,path) or Name.id(path:match('([^/]+)$'))~=id then return nil,err('INVALID_INPUT','下载登记路径与书名不一致')end
+    if not within(root,path) or Name.local_id(path:match('([^/]+)$'))~=id then return nil,err('INVALID_INPUT','下载登记路径与书名不一致')end
     if v.books[id] and v.books[id].path~=path and lfs.symlinkattributes(v.books[id].path) then
         return nil,err('CONFLICT','同名书籍已登记在其他路径，请重新检查本机书籍')
     end

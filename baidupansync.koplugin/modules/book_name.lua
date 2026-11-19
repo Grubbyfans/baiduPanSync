@@ -19,6 +19,21 @@ function M.id(value)
     end
     return id
 end
+-- Local filenames already exist on disk; do not sanitize/truncate them using
+-- the cloud publication naming policy. Only the final EPUB extension is stripped.
+function M.local_id(value)
+    if type(value)~='string' or not value:match('%.[Ee][Pp][Uu][Bb]$')
+        or value:find('/',1,true) or value:find('\\',1,true) or value:find('%z')
+        or not require('modules/progress_record').is_valid_utf8(value) then
+        return nil,E.new('INVALID_INPUT','本机 EPUB 文件名无效')
+    end
+    local id=value:sub(1,-6)
+    if id=='' or id=='.' or id=='..' then return nil,E.new('INVALID_INPUT','本机 EPUB 书名无效')end
+    return id
+end
+function M.local_valid(id)
+    return type(id)=='string' and M.local_id(id..'.epub')==id
+end
 function M.valid(id)
     return type(id)=='string' and M.id(id..'.epub')==id
 end
