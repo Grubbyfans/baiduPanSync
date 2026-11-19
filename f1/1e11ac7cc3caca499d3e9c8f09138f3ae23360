@@ -1,0 +1,33 @@
+baidupansync.koplugin/README.md
+  s_e3b637e15ec5a8::t_df4a64f123680a 3,107-110
+README.md
+  s_e3b637e15ec5a8::t_df4a64f123680a 7,16,101-104
+baidupansync.koplugin/_meta.lua
+  s_e3b637e15ec5a8::t_6e32a5b9354bd1 5
+baidupansync.koplugin/main.lua
+  s_e3b637e15ec5a8::t_bfb810f1c1f437 2,24
+baidupansync.koplugin/spec/unit/library_status_spec.lua
+  s_e3b637e15ec5a8::t_1e0322fd1b85bf 1-22
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_e3b637e15ec5a8::t_0ca803a83dbc1a 14-15
+baidupansync.koplugin/ui/library_grid.lua
+  s_e3b637e15ec5a8::t_3f9e77cc57b8ed 272-275,324
+baidupansync.koplugin/ui/library_status.lua
+  s_e3b637e15ec5a8::t_432ff7a7974776 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f11e11ac7cc3caca499d3e9c8f09138f3ae23360",
+  "prompts": {},
+  "sessions": {
+    "s_e3b637e15ec5a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f192-302e-7f80-8839-33fd30aff075",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
