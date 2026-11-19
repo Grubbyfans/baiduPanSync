@@ -1,0 +1,114 @@
+baidupansync.koplugin/spec/fixtures/fake_backend.lua
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 52
+baidupansync.koplugin/modules/progress.lua
+  s_e3b637e15ec5a8::t_72e706027867ef 412,529-535
+baidupansync.koplugin/main.lua
+  s_e3b637e15ec5a8::t_60953f241f8f6f 193,203,239,264-293,301,303,306-308,310,338-342,358,385
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 2,24,381,386
+  s_e3b637e15ec5a8::t_c109b857682b97 180,390
+baidupansync.koplugin/modules/baidu_upload_plan.lua
+  s_e3b637e15ec5a8::t_e0cabd89c0f07e 15,31,34-35,40
+baidupansync.koplugin/spec/fixtures/baidu_cloud.lua
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 8,18,43-45,50,58,69
+baidupansync.koplugin/modules/baidu_api.lua
+  s_e3b637e15ec5a8::t_696f17a35691fa 8,26-27,122-137,139,143,145-154,156,158,161-165,169-171,175-176,180,192,194,200-201,203,205,217,246-254,265-272,274-303,305,310-312,314,317-319,323
+  s_e3b637e15ec5a8::t_f6ed113569067a 23-25
+  s_e3b637e15ec5a8::t_5e5d7ffecf9940 255-257,262-264
+  s_d483502e410d98::t_ba575cc5427f79 1,22,258-261
+baidupansync.koplugin/modules/local_library.lua
+  s_e3b637e15ec5a8::t_72e706027867ef 40
+baidupansync.koplugin/modules/book_metadata.lua
+  s_e3b637e15ec5a8::t_e0cabd89c0f07e 36-44
+baidupansync.koplugin/modules/book_name.lua
+  s_e3b637e15ec5a8::t_e0cabd89c0f07e 1-8,10-25
+  s_e3b637e15ec5a8::t_696f17a35691fa 9
+baidupansync.koplugin/modules/webdav.lua
+  s_e3b637e15ec5a8::t_e0cabd89c0f07e 91,100,106-110,127
+baidupansync.koplugin/modules/cloud_service.lua
+  s_e3b637e15ec5a8::t_d508ac59606eb4 34-38
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 142
+  s_e3b637e15ec5a8::t_72e706027867ef 6-7,33,48-50,120-122,124-135,137-141,143-144,147-149,151-155,157-158,163-164,167-170,180-181,183,185-193,196-208,211-215,217,222,224,226-230,232-233,235-236,238-239,242,247-249,252,257-259,261-263,266-268,270,272,275-277
+  s_e3b637e15ec5a8::t_31ad62bcd927b9 39
+  s_e3b637e15ec5a8::t_ead531d77c245b 182
+baidupansync.koplugin/modules/dav_transport.lua
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 46,64
+baidupansync.koplugin/spec/library_flow_regression.lua
+  s_e3b637e15ec5a8::t_60953f241f8f6f 26-28,31,33,45,48-50,53-63,66-67,70-71
+  s_e3b637e15ec5a8::t_2b9cfaead0a663 38,72-95
+baidupansync.koplugin/spec/unit/progress_record_spec.lua
+  s_e3b637e15ec5a8::t_141c77145a1189 47
+baidupansync.koplugin/modules/baidu_http.lua
+  s_e3b637e15ec5a8::t_696f17a35691fa 40-41
+BaiduPanSync_技术方案.md
+  s_e3b637e15ec5a8::t_d5f08926088486 1-2
+baidupansync.koplugin/modules/progress_record.lua
+  s_e3b637e15ec5a8::t_e0cabd89c0f07e 178,185-189,192,195,292,296,298,300
+0.10.0验收记录.md
+  s_e3b637e15ec5a8::t_d5f08926088486 1-24
+baidupansync.koplugin/modules/library_catalog.lua
+  s_e3b637e15ec5a8::t_72e706027867ef 1-38
+baidupansync.koplugin/spec/run_isolated.py
+  s_e3b637e15ec5a8::t_85e48364572742 15
+  s_e3b637e15ec5a8::t_3bf6c6bf2951f1 13,75
+  s_e3b637e15ec5a8::t_4d79b6f59a769a 74
+  s_e3b637e15ec5a8::t_8247a587b35eb3 8
+baidupansync.koplugin/README.md
+  s_e3b637e15ec5a8::t_d5f08926088486 1,3,5,7,9-13,15-20,22,24,26,28,30,32,34,36-39,41,43,45,47-53,55,57,59,61,63,65,67,69-75,77,82,84,86-88,92
+README.md
+  s_e3b637e15ec5a8::t_d5f08926088486 7,14-16,30-32
+  s_e3b637e15ec5a8::t_dba035b038af10 33
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 14-15
+baidupansync.koplugin/spec/baidu_cloud_regression.lua
+  s_e3b637e15ec5a8::t_2b9cfaead0a663 133-136,138-148
+  s_e3b637e15ec5a8::t_f4594c5c59c7f9 54
+  s_e3b637e15ec5a8::t_3bf6c6bf2951f1 65-67,69,77-92,94-106,108-119,121-129,131-132,149-156
+baidupansync.koplugin/spec/baidu_api_regression.lua
+  s_e3b637e15ec5a8::t_3bf6c6bf2951f1 39,41-43,80,82
+baidupansync.koplugin/spec/baidu_regression.lua
+  s_e3b637e15ec5a8::t_30e441796a6682 54
+baidupansync.koplugin/_meta.lua
+  s_e3b637e15ec5a8::t_bf3ea948aa85a4 4-5
+baidupansync.koplugin/spec/baidu_transfer_regression.lua
+  s_e3b637e15ec5a8::t_3bf6c6bf2951f1 23,30,46-47,52,55,81-82,87-88
+baidupansync.koplugin/modules/library_cache.lua
+  s_e3b637e15ec5a8::t_d9dfd46d35e302 1,5-6,10,14,16-21,26-29,32-48,50
+baidupansync.koplugin/spec/unit/cloud_network_spec.lua
+  s_e3b637e15ec5a8::t_efc9c148d15218 50
+baidupansync.koplugin/spec/unit/cloud_service_spec.lua
+  s_e3b637e15ec5a8::t_bfe784d386a877 1,59-79,81-83,86-87,89-107,110-113,115,117-131,133,135-150,152-156,158-162
+baidupansync.koplugin/spec/unit/library_catalog_spec.lua
+  s_e3b637e15ec5a8::t_c544a03e15aadd 1-40
+baidupansync.koplugin/spec/unit/progress_integration_spec.lua
+  s_e3b637e15ec5a8::t_4ab4c35cf39f72 335
+baidupansync.koplugin/ui/cloud_dialog.lua
+  s_e3b637e15ec5a8::t_e28fba767cc4e5 73,77,88,91,166
+baidupansync.koplugin/ui/library_grid.lua
+  s_e3b637e15ec5a8::t_af6a1e42174725 67,70,72,144,156,197,226-231,248-250
+baidupansync.koplugin/ui/task_progress.lua
+  s_e3b637e15ec5a8::t_a3e0e3f557e84d 14-15,86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "00931f9a0d731b7fa01fede0441c56f0d5d88f8d",
+  "prompts": {},
+  "sessions": {
+    "s_d483502e410d98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f2c1-2ab3-76e3-a5d9-d782a9bff199",
+        "model": "unknown"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    },
+    "s_e3b637e15ec5a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f192-302e-7f80-8839-33fd30aff075",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
