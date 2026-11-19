@@ -1,0 +1,67 @@
+baidupansync.koplugin/modules/baidu_api.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 313
+  s_e3b637e15ec5a8::t_31c205865b2fa4 320
+0.10.7验收记录.md
+  s_e3b637e15ec5a8::t_7b0a1f73d86284 1-26
+baidupansync.koplugin/main.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 354,477-478,480-482
+  s_e3b637e15ec5a8::t_06e1a0c04752b7 2,24,479
+baidupansync.koplugin/modules/book_name.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 4-10,12-13,16-20
+baidupansync.koplugin/modules/cloud_inventory.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 1-17,19-37,39-45,49-54,56-61,63-65,68-71
+  s_e3b637e15ec5a8::t_7bb5c784b0e327 18,38,46-48,55,62,66-67
+baidupansync.koplugin/modules/book_metadata.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 38,57,65-68
+baidupansync.koplugin/README.md
+  s_e3b637e15ec5a8::t_7b0a1f73d86284 3,7,9,22,49,53,61,131-140
+README.md
+  s_e3b637e15ec5a8::t_7b0a1f73d86284 7,16,18,125-130
+BaiduPanSync_技术方案.md
+  s_e3b637e15ec5a8::t_7b0a1f73d86284 1-2
+baidupansync.koplugin/modules/cloud_service.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 8,166-206,224,229-230,232,237
+  s_e3b637e15ec5a8::t_3504c82c324530 249,310
+baidupansync.koplugin/modules/webdav.lua
+  s_e3b637e15ec5a8::t_b765f3c5e39316 14-20,116,185
+baidupansync.koplugin/_meta.lua
+  s_e3b637e15ec5a8::t_659b9e1077f75b 5
+baidupansync.koplugin/spec/baidu_cloud_regression.lua
+  s_e3b637e15ec5a8::t_8917b50e5b4ea6 161-180
+baidupansync.koplugin/spec/library_flow_regression.lua
+  s_e3b637e15ec5a8::t_6b6501d283e7fc 34,36,54,57
+baidupansync.koplugin/spec/unit/cloud_inventory_spec.lua
+  s_e3b637e15ec5a8::t_ffb0b256dd29d5 1-57
+baidupansync.koplugin/spec/unit/cloud_service_spec.lua
+  s_e3b637e15ec5a8::t_06aed0ef56b689 103-135
+baidupansync.koplugin/spec/unit/home_page_spec.lua
+  s_e3b637e15ec5a8::t_44481014152937 107-112
+baidupansync.koplugin/spec/unit/local_books_spec.lua
+  s_e3b637e15ec5a8::t_3a184af40880b5 100-102
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_e3b637e15ec5a8::t_161426a8ddbbf3 14-15
+baidupansync.koplugin/spec/fixtures/baidu_cloud.lua
+  s_e3b637e15ec5a8::t_37bfbb29325cc3 64,66
+baidupansync.koplugin/spec/unit/cloud_network_spec.lua
+  s_e3b637e15ec5a8::t_bf48245cf2dde7 54-66,73
+baidupansync.koplugin/spec/unit/library_compact_ui_spec.lua
+  s_e3b637e15ec5a8::t_0a64130f412352 1-31
+baidupansync.koplugin/ui/library_grid.lua
+  s_e3b637e15ec5a8::t_9ab1d758c9b268 136-148,150-165,248-249,251-253,256-261,313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3defd2c959e5b1520a4c95be6e35054fe89d921e",
+  "prompts": {},
+  "sessions": {
+    "s_e3b637e15ec5a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f192-302e-7f80-8839-33fd30aff075",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
