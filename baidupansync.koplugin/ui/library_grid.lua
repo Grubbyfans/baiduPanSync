@@ -269,7 +269,10 @@ function Grid:build()
     self.toolbar_buttons=toolbar_buttons
     local toolbar=ButtonTable:new{width=w,buttons=toolbar_buttons}
     self.entries=self.filter(self.result,self.state)
-    local header=title:getSize().h+toolbar:getSize().h
+    local status=Text:new{text=require('ui/library_status').text(self.result),width=w-16,
+        face=Font:getFace('smallinfofont'),alignment='center'}
+    self.cache_status_text=require('ui/library_status').text(self.result)
+    local header=title:getSize().h+toolbar:getSize().h+status:getSize().h
     -- Navigation has a stable height; only its page label changes.
     local footer=ButtonTable:new{width=w,buttons={{
         {text='|‹',callback=function()self:goToPage(1)end},
@@ -318,7 +321,7 @@ function Grid:build()
                     or _('未找到匹配书籍\n请更换关键词或清除搜索。')}}
     end
     self[1]=Frame:new{width=w,height=h,padding=0,margin=0,bordersize=0,background=BB.COLOR_WHITE,
-        Vertical:new{align='left',title,toolbar,body,footer}}
+        Vertical:new{align='left',title,toolbar,status,body,footer}}
     title.show_parent=self
 end
 return Grid
