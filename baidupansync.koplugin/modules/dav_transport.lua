@@ -154,12 +154,14 @@ function M.request(req,done)
     local scoped=Async.has_scope()
     local handle={cancelled=false}
     local called=false
+    local shared=req.task_progress
     local dialog,marker,poll,wait_widget,unregister,deadline,timed_out
     local UI=require('ui/uimanager')
     local function finish(e,r)
         if called then return end;called=true
         if unregister then unregister() end
         if deadline then UI:unschedule(deadline) end
+        if shared then shared:detach(handle.cancel)end
         done(e,r)
     end
     handle.cancel=function()
@@ -181,21 +183,30 @@ function M.request(req,done)
                 status_file:write('0');status_file:close()
                 req.progress_path=marker
                 local total=req.upload_size or req.max_bytes
-                dialog=require('ui/widget/progressbardialog'):new{
+                if not shared then dialog=require('ui/widget/progressbardialog'):new{
                     title=req.progress_title or (req.upload_path and '正在上传 EPUB' or '正在下载 EPUB'),
                     subtitle='点击可取消；写入取消后请重新查询云端状态',progress_max=total>0 and total or nil,
                     refresh_time_seconds=0.5,
                 }
-                dialog:show()
+                dialog:show() end
                 poll=function()
-                    if not dialog then return end
+                    if called or (not dialog and not shared) then return end
                     local f=io.open(marker,'rb')
-                    if f then local count=tonumber(f:read(32));f:close();if count and total>0 then dialog:reportProgress(math.min(count,total)) end end
+                    if f then
+                        local count=tonumber(f:read(32));f:close()
+                        if count and total>0 then
+                            if shared then shared:report((req.task_transfer_offset or 0)+math.min(count,total),req.task_transfer_total or total)
+                            else dialog:reportProgress(math.min(count,total))end
+                        end
+                    end
                     UI:scheduleIn(0.2,poll)
                 end
                 UI:scheduleIn(0.2,poll)
             end
-            if not dialog and (scoped or UI.show) then
+            if shared then
+                wait_widget={}
+                shared:attach(handle.cancel,req)
+            elseif not dialog and (scoped or UI.show) then
                 wait_widget=require('ui/widget/trapwidget'):new{text=req.wait_message or '正在访问云端（点击可取消）…'}
                 UI:show(wait_widget);UI:forceRePaint()
             end
@@ -232,12 +243,14 @@ function M.request(req,done)
             -- Clean up before handing control back to a callback that may start
             -- another request. Closing normally must never trigger cancellation.
             if dialog then dialog.dismiss_callback=nil;dialog:close();dialog=nil;UI:unschedule(poll) end
-            if wait_widget then wait_widget.dismiss_callback=nil;UI:close(wait_widget);wait_widget=nil end
+            if wait_widget then wait_widget.dismiss_callback=nil;if not shared then UI:close(wait_widget)end;wait_widget=nil end
+            if shared and poll then UI:unschedule(poll)end
             if marker then os.remove(marker);marker=nil end
             finish(e,r)
         end)
         if dialog then dialog.dismiss_callback=nil;pcall(dialog.close,dialog);if poll then UI:unschedule(poll) end end
-        if wait_widget then wait_widget.dismiss_callback=nil;pcall(UI.close,UI,wait_widget) end
+        if wait_widget then wait_widget.dismiss_callback=nil;if not shared then pcall(UI.close,UI,wait_widget)end end
+        if shared and poll then UI:unschedule(poll)end
         if marker then os.remove(marker) end
         if not ok then finish(Errors.exception(err,'网络传输',writing(req))) end
     end)

@@ -22,7 +22,8 @@ function M.request(opts,done)
     local transport=opts.transport or require('modules/dav_transport').request
     local req={url=opts.url,method=opts.method or 'GET',body=opts.body,cafile=opts.cafile,
         headers=opts.headers or {['User-Agent']='pan.baidu.com'},max_bytes=opts.max_bytes or 1048576,
-        writing=opts.writing}
+        writing=opts.writing,task_progress=opts.task_progress,
+        task_transfer_offset=opts.task_transfer_offset,task_transfer_total=opts.task_transfer_total}
     for _,key in ipairs({'upload_path','upload_offset','upload_size','upload_prefix','upload_suffix',
         'expected_sha256','download_path','progress_dir'}) do req[key]=opts[key] end
     req.wait_message='正在访问百度网盘（点击可取消）…'

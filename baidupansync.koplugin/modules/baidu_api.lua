@@ -47,7 +47,8 @@ function M:request(endpoint,method,params,body,writing,headers)
     params=params or {};params.access_token=self.profile.access_token
     return A.call(function(done)H.request({transport=self.transport,cafile=self.profile.cafile,
         url=endpoint..'?'..H.form(params),method=method,body=body,writing=writing,
-        headers=headers or {['User-Agent']='pan.baidu.com',['Content-Type']='application/x-www-form-urlencoded'}},done)end)
+        headers=headers or {['User-Agent']='pan.baidu.com',['Content-Type']='application/x-www-form-urlencoded'},
+        task_progress=operation and operation.task_progress},done)end)
 end
 function M:user_info(done)
     A.run(function()
@@ -197,7 +198,8 @@ function M:upload(relative,file,progress,done,opts)
                     upload_path=file,upload_offset=part.offset,upload_size=part.size,expected_sha256=part.sha256,
                     upload_prefix='--'..boundary..'\r\nContent-Disposition: form-data; name="file"; filename="book.epub"\r\n'..
                         'Content-Type: application/octet-stream\r\n\r\n',upload_suffix='\r\n--'..boundary..'--\r\n',
-                    progress_dir=self.progress_dir},cb)end)
+                    progress_dir=self.progress_dir,task_progress=self.operation_opts and self.operation_opts.task_progress,
+                    task_transfer_offset=completed,task_transfer_total=plan.size},cb)end)
                 if slice.md5~=plan.blocks[index+1] then fail('CONFLICT','百度 EPUB 分片摘要不一致，未提交文件') end
                 completed=completed+part.size
                 if progress then progress(completed,plan.size) end
@@ -248,6 +250,7 @@ function M:download(relative,destination,progress,done,opts)
                 (self.transport or require('modules/dav_transport').request)({url=token_url(url,self.profile.access_token),method='GET',cafile=self.profile.cafile,
                     headers={['User-Agent']='pan.baidu.com'},max_bytes=st.size,
                     download_path=destination,reset_download=destination~=nil,progress_dir=destination and self.progress_dir or nil,
+                    task_progress=self.operation_opts and self.operation_opts.task_progress,
                     progress_title=opts.progress_title,
                     wait_message=opts.wait_message or '正在从百度网盘下载（点击可取消）…'},cb)
             end)

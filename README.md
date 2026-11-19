@@ -4,14 +4,14 @@
 
 - 技术方案：[BaiduPanSync_技术方案.md](BaiduPanSync_技术方案.md)（V1.8，开发基线）
 - 文档分析：[分析结果.md](分析结果.md)
-- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.9.7：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
+- 插件目录：[baidupansync.koplugin](baidupansync.koplugin)（当前版本 0.9.8：WebDAV / 百度网盘进度同步、当前 EPUB 上传、书库下载）
 - 安装/使用/测试说明：[baidupansync.koplugin/README.md](baidupansync.koplugin/README.md)
 - 阶段 A 验收记录：[阶段A验收记录.md](阶段A验收记录.md)（已通过）
 - 阶段 B 验收记录：[阶段B验收记录.md](阶段B验收记录.md)
 
 ## 当前状态
 
-C1 已由用户确认通过。WebDAV 与百度网盘均已实现手动进度上传/查询/应用、EPUB 发布、封面书库与安全下载。0.8.0 的离线回归覆盖百度完整流程、分片传输、冲突、完整摘要回读及后端隔离。**2026-11-18 用户确认：WebDAV 与百度网盘双后端的核心闭环已在 Kobo 与 Kindle 真机通过——上传书籍、下载书籍、阅读进度同步均成功。** 详见 [阶段百度DEF验收记录.md](阶段百度DEF验收记录.md) 和 [阶段DEF验收记录.md](阶段DEF验收记录.md)。仍待验收：断网/Token 过期/下载中断等边界场景、0.9.0 新增的未发布修复与本机缓存入口、完整 GUI 交互矩阵；阶段 G 尚未推进。当前 Windows 的 Node 服务测试存在符号链接权限限制，历史记录见 [阶段C2验收记录.md](阶段C2验收记录.md)。
+C1 已由用户确认通过。WebDAV 与百度网盘均已实现手动进度上传/查询/应用、EPUB 发布、封面书库与安全下载。0.8.0 的离线回归覆盖百度完整流程、分片传输、冲突、完整摘要回读及后端隔离。**2026-11-18 用户确认：WebDAV 与百度网盘双后端的核心闭环已在 Kobo 与 Kindle 真机通过——上传书籍、下载书籍、阅读进度同步均成功。** 详见 [阶段百度DEF验收记录.md](阶段百度DEF验收记录.md) 和 [阶段DEF验收记录.md](阶段DEF验收记录.md)。2026-11-19 用户进一步确认 0.9.6 验收已完成。本次新增的 0.9.7 异常书籍管理与 0.9.8 统一任务进度需单独验收；断网/Token 过期/下载中断等边界场景未提供逐项结果，不据此推定通过；阶段 G 尚未推进。当前 Windows 的 Node 服务测试存在符号链接权限限制，历史记录见 [阶段C2验收记录.md](阶段C2验收记录.md)。
 
 ## 运行测试
 
@@ -24,6 +24,8 @@ KOREADER_DIR=/path/to/koreader npm --prefix serve run test:plugin
 ## 本地 WebDAV 测试服务
 
 已提供零依赖 Node.js 服务：[serve/README.md](serve/README.md)。修改 `serve/config.json` 的端口、账户和存储目录后，运行 `node serve/server.js`，可测试插件的 C1 上传下载及条件写入。
+
+0.9.8 书籍上传、下载、修复共用连续任务进度，展示各阶段与当前阶段字节数，传输达到 100% 后继续校验和发布。
 
 0.9.7 新增统一“待处理书籍”管理，集中展示异常原因、修复发布和按版本确认清理入口。
 

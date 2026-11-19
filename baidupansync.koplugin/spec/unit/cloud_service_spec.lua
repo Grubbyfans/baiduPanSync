@@ -443,6 +443,22 @@ describe('WebDAV D/E/F orchestration',function()
         assert.is_equal('FORBIDDEN',run('cleanup_issue',hint,options()).e.code)
         assert.is_equal(0,#backend.writes)
     end)
+    it('finishes unified progress only after the publication is actually committed',function()
+        local tracker=require('ui/task_progress').new('upload_book','WebDAV · fixture')
+        local upload_seen,publish_seen=false,false
+        backend.hook=function(method,path)
+            if method=='upload' then upload_seen=true;assert.is_equal(3,tracker.stage);assert.is_nil(tracker.completed)end
+            if method=='put' and path:match('^metadata/') then
+                publish_seen=true;assert.is_equal(5,tracker.stage);assert.is_nil(tracker.completed)
+            end
+        end
+        local result=run('upload_book',context,options{
+            on_state=function(s)tracker:state(s)end,on_phase=function(p)tracker:phase(p)end,
+            on_hash_start=function(total)tracker:hash_start(total)end,on_progress=function(n,t)tracker:report(n,t)end,
+        })
+        local completed=tracker.completed;tracker:close()
+        assert.is_nil(result.e);assert.is_true(upload_seen);assert.is_true(publish_seen);assert.is_true(completed)
+    end)
     it('times out a stalled qualification without leaving temporary write permissions',function()
         local timers,err={}
         backend.conditional_verified=false;backend.conditional_delete_verified=false

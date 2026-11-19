@@ -42,4 +42,29 @@ describe('parent transport watchdog',function()
             deadline();assert.is_equal(1,count)
         end)
     end
+    it('uses shared task progress, accumulates slice bytes and keeps ownership with the task',function()
+        local lfs=require('libs/libkoreader-lfs')
+        local root=os.tmpname();os.remove(root);assert(lfs.mkdir(root))
+        local attached,detached,reported,err,calls
+        calls=0
+        local shared={attach=function(_,cancel)attached=cancel end,
+            detach=function(_,cancel)assert.is_equal(attached,cancel);detached=true end,
+            report=function(_,count,total)reported={count,total}end}
+        local req={url='http://fixture/',method='PUT',upload_path='/unused.epub',upload_size=1024,
+            task_transfer_offset=1024,task_transfer_total=4096,progress_dir=root,task_progress=shared}
+        local ok,failure=pcall(function()
+            Transport.request(req,function(e)err=e;calls=calls+1 end)
+            assert.is_truthy(attached);assert.is_false(closed)
+            local status=assert(io.open(req.progress_path,'wb'));status:write('512');status:close()
+            local poll
+            for cb,seconds in pairs(timers) do if seconds==0.2 then poll=cb end end
+            assert.is_truthy(poll);poll();assert.are.same({1536,4096},reported)
+            attached();assert.is_true(terminated);assert.is_true(detached)
+            assert.is_equal('UNCERTAIN',err.code);assert.is_equal(1,calls)
+            assert.is_false(closed);assert.is_nil(lfs.attributes(req.progress_path));assert.is_nil(next(timers))
+            poll();assert.is_equal(1,calls);assert.is_nil(next(timers))
+        end)
+        if req.progress_path then os.remove(req.progress_path)end;lfs.rmdir(root)
+        assert.is_true(ok,tostring(failure))
+    end)
 end)

@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.9.7: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.9.8: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.9.7"
+local VERSION = "0.9.8"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -199,11 +199,29 @@ function BaiduPanSync:_cloud(operation, entry)
         state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader"}
     local cloud_dialog=require("ui/cloud_dialog")
     local backend_label=require('ui/backend_label').for_backend(backend)
-    local opts=self:_hash_opts()
+    local tracker
+    if operation=='upload_book' or operation=='download_book' or operation=='repair_book' then
+        tracker=require('ui/task_progress').new(operation,backend_label)
+    end
+    local opts=tracker and {
+        schedule=function(cb)UIManager:scheduleIn(0,cb)end,
+        is_cancelled=function()return tracker:is_cancelled()end,
+        on_hash_start=function(total)tracker:hash_start(total)end,
+        on_hash_finish=function()end,
+        on_progress=function(count,total)tracker:report(count,total)end,
+        on_transfer=function(count,total)tracker:report(count,total)end,
+        task_progress=tracker,
+    } or self:_hash_opts()
     local logger=require('logger')
     logger.info('BaiduPanSync',VERSION,mode,operation,'start',context and context.book.size or 0)
-    opts.on_state=function(state)logger.info('BaiduPanSync',VERSION,mode,operation,'state',state)end
-    opts.on_phase=function(phase)logger.info('BaiduPanSync',VERSION,mode,operation,'phase',phase)end
+    opts.on_state=function(state)
+        logger.info('BaiduPanSync',VERSION,mode,operation,'state',state)
+        if tracker then tracker:state(state)end
+    end
+    opts.on_phase=function(phase)
+        logger.info('BaiduPanSync',VERSION,mode,operation,'phase',phase)
+        if tracker then tracker:phase(phase)end
+    end
     opts.guard=function()
         if (self.active_backend or 'webdav')~=mode or (mode=='webdav' and self.dav_adapter~=backend) then
             return nil,require("modules/errors").new("CONFLICT","后端配置已变化")
@@ -222,7 +240,10 @@ function BaiduPanSync:_cloud(operation, entry)
     local scan_ui
     local hash_cancelled=opts.is_cancelled
     opts.is_cancelled=function()return (scan_ui and scan_ui:is_cancelled()) or hash_cancelled()end
-    opts.on_scan_start=function()scan_ui=Dialog.start_scan_progress()end
+    opts.on_scan_start=function()
+        if tracker then tracker:set_stage(2,'检查根目录及子目录的同名书籍')
+        else scan_ui=Dialog.start_scan_progress()end
+    end
     opts.on_scan_finish=function()if scan_ui then scan_ui:close()end end
     opts.home_dir=G_reader_settings:readSetting("home_dir")
     opts.get_home=function()return G_reader_settings:readSetting("home_dir")end
@@ -277,6 +298,8 @@ function BaiduPanSync:_cloud(operation, entry)
     end
     local function completed(e,result)
         if scan_ui then scan_ui:close() end
+        if tracker then tracker:close()end
+        if backend.operation_opts==opts then backend.operation_opts=nil end
         self.dav_busy=false
         if e then logger.warn('BaiduPanSync',VERSION,mode,operation,'finished',e.code,e.message)
         else logger.info('BaiduPanSync',VERSION,mode,operation,'finished','success') end

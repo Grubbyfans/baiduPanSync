@@ -30,7 +30,8 @@ function M:_request(method,path,body,headers,done,transfer)
     if not safe(path) then return done(err('INVALID_INPUT','路径必须位于同步根目录内')) end
     local writing = method=='PUT' or method=='DELETE' or method=='MKCOL'
     local request={url=self.root..encode(path),method=method,body=body,headers=headers or {},
-        username=self.username,password=self.password,cafile=self.cafile,progress_dir=self.progress_dir}
+        username=self.username,password=self.password,cafile=self.cafile,progress_dir=self.progress_dir,
+        task_progress=self.operation_opts and self.operation_opts.task_progress}
     for k,v in pairs(transfer or {}) do request[k]=v end
     return self.transport(request,function(e,r)
         if e then return done(e) end

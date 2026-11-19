@@ -13,6 +13,10 @@ for _,name in ipairs({'book_identity','config_store','storage','progress','sync_
 package.loaded['ui/menu']={};package.loaded.logger={info=function()end,warn=function()end}
 package.loaded['modules/book_cover']={extract=function()end}
 package.loaded['modules/local_library']={}
+package.loaded['ui/task_progress']={new=function()return {
+    state=function()end,phase=function()end,close=function()end,is_cancelled=function()return false end,
+    hash_start=function()end,report=function()end,set_stage=function()end,
+}end}
 local notice
 package.loaded['ui/progress_dialog']={error=function(e)errors=errors+1;notice=e end,
     info=function(text,persistent)notice={text=text,persistent=persistent}end,
