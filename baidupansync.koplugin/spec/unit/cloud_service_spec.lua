@@ -130,6 +130,33 @@ describe('single-writer name-based catalog',function()
         assert.is_equal(read(book),backend.files['books/same.epub']);assert.is_nil(backend.files['library.json'])
         backend.hook=nil;assert.is_nil(run('upload_book',context,options()).e)
     end)
+    it('persists confirmed EPUB recovery and republishes only the catalog after restart',function()
+        backend.hook=function(method,path)if method=='put' and path=='library.json'then return Errors.new('NETWORK','offline')end end
+        local first=run('upload_book',context,options());assert.is_equal('catalog',first.e.detail.stage)
+        local pending=assert(service.recovery:list(backend.backend_id));assert.is_equal(1,#pending)
+        local epub=backend.files['books/same.epub'];backend.hook=nil;backend.calls={}
+        local restarted=Cloud:new{backend=backend,identity=identity,progress=progress,state=state,config=config,temp_dir=root..'/temporary'}
+        local e,r;restarted:finish_publication(pending[1],options(),function(err,value)e=err;r=value end)
+        assert.is_nil(e);assert.is_true(r.published);assert.is_equal(epub,backend.files['books/same.epub'])
+        assert.is_equal(2,#backend.calls);assert.is_equal('download',backend.calls[1].method);assert.is_equal('put',backend.calls[2].method)
+        assert.is_equal(0,#assert(service.recovery:list(backend.backend_id)))
+        restarted:finish_publication(pending[1],options(),function(err)e=err end);assert.is_equal('NOT_FOUND',e.code)
+    end)
+    it('keeps recovery on a second catalog failure and isolates backends',function()
+        backend.hook=function(method,path)if method=='put' and path=='library.json'then return Errors.new('NETWORK','offline')end end
+        assert.is_equal('UNCERTAIN',run('upload_book',context,options()).e.code)
+        local receipt=assert(service.recovery:list(backend.backend_id))[1]
+        assert.is_truthy(run('finish_publication',receipt,options()).e)
+        assert.is_equal(1,#assert(service.recovery:list(backend.backend_id)))
+        receipt.backend_id=string.rep('b',64)
+        assert.is_equal('CONFLICT',run('finish_publication',receipt,options()).e.code)
+        assert.is_equal(0,#assert(service.recovery:list(receipt.backend_id)))
+    end)
+    it('does not offer catalog-only repair when EPUB upload itself was not confirmed',function()
+        backend.hook=function(method)if method=='upload'then return Errors.new('NETWORK','offline')end end
+        local r=run('upload_book',context,options())
+        assert.is_equal('epub',r.e.detail.stage);assert.is_equal(0,#assert(service.recovery:list(backend.backend_id)))
+    end)
     it('downloads by catalog path, checks size, and preserves local settings on same-name replacement',function()
         local entry=published()
         local r=run('download_book',entry,options());assert.is_nil(r.e)

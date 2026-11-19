@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.10.3: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.10.4: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.10.3"
+local VERSION = "0.10.4"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -238,6 +238,25 @@ function BaiduPanSync:_localBookAction(entry,deleting)
         end})
 end
 
+function BaiduPanSync:_publicationStore()
+    return require('modules/publication_recovery'):new{dir=self.settings_dir..'/publication_recovery'}
+end
+function BaiduPanSync:_showPublicationRecovery(backend_id)
+    local pending,e=self:_publicationStore():list(backend_id)
+    if not pending then return Dialog.error(e)end
+    if #pending==0 then return Dialog.info('没有待补全的书库记录。')end
+    local dialog;local buttons={}
+    for _,receipt in ipairs(pending)do
+        local selected=receipt
+        buttons[#buttons+1]={{text=selected.record.bookId..' · 补全列表',callback=function()
+            UIManager:close(dialog);self:_cloud('finish_publication',selected)
+        end}}
+    end
+    buttons[#buttons+1]={{text='返回书库',callback=function()UIManager:close(dialog)end}}
+    dialog=require('ui/widget/buttondialog'):new{title='补全书库列表\nEPUB 已上传，只重试发布列表，不重传正文。',buttons=buttons,rows_per_page=5}
+    UIManager:show(dialog)
+end
+
 function BaiduPanSync:_cloud(operation, entry, force_refresh)
     if self.dav_busy or self.undo_busy or self.baidu_busy or self.local_scan_busy then return Dialog.info("已有任务正在进行，请稍候。") end
     local mode=self.active_backend or 'webdav'
@@ -251,13 +270,14 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         backend=self.dav_adapter
     else return Dialog.info('当前后端类型无效，请在连接设置中重新选择。') end
     local context
-    if operation~="list" and operation~="download_book" and operation~="delete_book" then
+    if operation~="list" and operation~="download_book" and operation~="delete_book" and operation~="finish_publication" then
         local e
         context,e=self.progress:capture()
         if not context then return Dialog.error(e) end
     end
     local cloud=require("modules/cloud_service"):new{backend=backend,identity=self.identity,progress=self.progress,
-        state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader"}
+        state=self.state,config=self.config,temp_dir=self.settings_dir.."/transfers",device_label=Device.model or "koreader",
+        recovery=self:_publicationStore()}
     local cloud_dialog=require("ui/cloud_dialog")
     local backend_label=require('ui/backend_label').for_backend(backend)
     local tracker
@@ -322,6 +342,9 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
     if view and (view.closed or view.result.backend_id~=backend.backend_id) then view=nil end
     local function show_library(result)
         self:_attachLocalBooks(result)
+        local pending=self:_publicationStore():list(backend.backend_id)
+        result.pending_publications=pending and #pending or 0
+        result.on_recover_publications=function()self:_showPublicationRecovery(backend.backend_id)end
         result.backend_label=backend_label
         result.load_covers=function(grid)
             if grid.cover_loading then return end
@@ -379,6 +402,14 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
     local library_action={text='查看云端书库',callback=checked(function()self:onCloudLibrary()end)}
     local compare_action={text='查看进度对比',callback=checked(function()self:onQueryCloudProgress()end,true)}
     local function show_error(err)
+        if operation=='upload_book' and err.detail and err.detail.stage=='catalog' then
+            if view and not view.closed then show_library(view.result)end
+            return Dialog.error(err,backend_label,{{text='补全书库列表',callback=checked(function()
+                self:_cloud('finish_publication',{backend_id=backend.backend_id,record=err.detail.record})
+            end)},library_action})
+        elseif operation=='upload_book' and err.detail and err.detail.stage=='epub' then
+            return Dialog.error(err,backend_label,{{text='重新上传书籍',callback=checked(function()self:onUploadBook()end,true)},library_action})
+        end
         if err.code=='CANCELLED' then return Dialog.error(err) end
         local actions
         if err.code=='AUTH' then actions=self:_connectionActions(mode,true)
@@ -401,7 +432,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
             local ok,saved=pcall(cache.save,cache,backend.backend_id,result.library)
             if not ok or not saved then logger.warn('BaiduPanSync: library cache could not be saved')end
             if view and not view.closed then show_library(result.library)end
-        elseif e and (operation=='upload_book' or operation=='delete_book') and e.code~='CANCELLED' then
+        elseif e and (operation=='upload_book' or operation=='delete_book' or operation=='finish_publication') and e.code~='CANCELLED' then
             cache:invalidate(backend.backend_id)
         end
         self:refreshHome()
@@ -439,6 +470,8 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
                 self:closeHome()
                 require("apps/reader/readerui"):showReader(file)
             end,library_action.callback)
+        elseif operation=='finish_publication' then
+            return Dialog.result('书库列表已补全','已更新书库列表，未重新上传 EPUB。'..(result.warning and ('\n'..result.warning)or ''),{library_action})
         elseif operation=="upload_book" then
             if result.skipped then return Dialog.info('已跳过。') end
             return Dialog.result('书籍发布完成',backend_label..'\n书籍和书库列表已提交。原有阅读进度保留，未自动上传。'..(result.warning and ('\n'..result.warning) or ''),{
@@ -458,6 +491,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         else cloud:list(opts,completed) end
     elseif operation=="download_book" then cloud:download_book(entry,opts,completed)
     elseif operation=="delete_book" then cloud:delete_book(entry,opts,completed)
+    elseif operation=='finish_publication' then cloud:finish_publication(entry,opts,completed)
     elseif operation=="upload_book" then cloud:upload_book(context,opts,completed)
     else cloud:progress_operation(operation,context,opts,completed) end
 end

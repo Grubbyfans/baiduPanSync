@@ -266,6 +266,11 @@ function Grid:build()
     if self.result.on_check_local then
         toolbar_buttons[#toolbar_buttons+1]={{text='检查本机书籍',callback=function()if not self.closed then self.result.on_check_local()end end}}
     end
+    if (self.result.pending_publications or 0)>0 then
+        toolbar_buttons[#toolbar_buttons+1]={{text='补全书库列表（'..self.result.pending_publications..'）',callback=function()
+            if not self.closed and self.result.on_recover_publications then self.result.on_recover_publications()end
+        end}}
+    end
     self.toolbar_buttons=toolbar_buttons
     local toolbar=ButtonTable:new{width=w,buttons=toolbar_buttons}
     self.entries=self.filter(self.result,self.state)

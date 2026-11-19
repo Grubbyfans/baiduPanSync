@@ -53,6 +53,18 @@ describe('actionable task results',function()
         local dialog=top();assert.is_equal('查看进度对比',dialog.buttons[1][1].text)
         dialog.buttons[1][1].callback();assert.is_equal(1,queried);assert.is_equal(1,writes)
     end)
+    it('offers catalog-only completion for a confirmed EPUB and retry-upload for unconfirmed EPUB',function()
+        plugin.hasRestorePoint=function()return false end
+        plugin:_cloud('upload_book')
+        UI:close(top())
+        failure={code='UNCERTAIN',message='catalog offline',detail={stage='catalog',record={bookId='test'}}}
+        plugin:_cloud('upload_book')
+        assert.is_equal('补全书库列表',top().buttons[1][1].text)
+        UI:close(top())
+        failure={code='NETWORK',message='EPUB offline',detail={stage='epub'}}
+        plugin:_cloud('upload_book')
+        assert.is_equal('重新上传书籍',top().buttons[1][1].text)
+    end)
     it('offers undo after applying remote progress',function()
         local undone=0;plugin.onUndoRestore=function()undone=undone+1 end
         plugin:_cloud('download');local dialog=top()

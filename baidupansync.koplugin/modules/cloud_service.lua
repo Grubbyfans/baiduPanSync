@@ -11,10 +11,11 @@ local Task=require('modules/task')
 local json=require('json')
 local lfs=require('libs/libkoreader-lfs')
 local M={};M.__index=M
-local function fail(code,message,outcome)error(Errors.new(code,message,{outcome=outcome}),0)end
+local function fail(code,message,outcome,detail)error(Errors.new(code,message,{outcome=outcome,detail=detail}),0)end
 function M:new(o)
     o.backend.progress_dir=o.temp_dir
     return setmetatable({backend=o.backend,identity=o.identity,progress=o.progress,state=o.state,
+        recovery=o.recovery or require("modules/publication_recovery"):new{dir=o.temp_dir.."/recovery"},
         config=o.config,temp_dir=o.temp_dir,now=o.now or os.time,device_label=o.device_label or 'koreader'},self)
 end
 function M:call(method,...)
@@ -183,13 +184,20 @@ function M:upload_book(context,opts,done)
         self:step('rechecking');self:guard(context,o)
         self:step('writing')
         self:phase('上传 EPUB（同名覆盖，进度保留）',o)
-        A.call(function(cb)self.backend:upload('books/'..identity.book_id..'.epub',context.book.file_path,o.on_transfer,cb,
-            {precondition={unconditional=true}})end)
+        A.check(self.recovery:remove(self.backend.backend_id,identity.book_id))
+        local sent,upload_error=pcall(function()
+            A.call(function(cb)self.backend:upload('books/'..identity.book_id..'.epub',context.book.file_path,o.on_transfer,cb,
+                {precondition={unconditional=true}})end)
+        end)
+        if not sent then fail(upload_error.code,'EPUB 正文未确认上传成功：'..upload_error.message,upload_error.outcome,{stage='epub'})end
         local record={schemaVersion=2,status='ready',bookId=identity.book_id,title=identity.book_id,
             fileName=identity.book_id..'.epub',path='books/'..identity.book_id..'.epub',size=identity.size,
             uploadedAt=Record.iso_timestamp(self.now())}
         local previous=Catalog.find(index,identity.book_id)
         if previous then record.coverPath=previous.coverPath;record.coverVersion=previous.coverVersion end
+        local receipt_saved,receipt_error=self.recovery:put(self.backend.backend_id,record)
+        if not receipt_saved then fail('UNCERTAIN','EPUB 已上传，但待发布记录无法保存：'..receipt_error.message,'uncertain',
+            {stage='catalog',backend_id=self.backend.backend_id,record=record})end
         local warning
         if o.make_cover then
             local ok,cover=pcall(o.make_cover,context.book.file_path,self:temporary(self.temp_dir))
@@ -208,13 +216,35 @@ function M:upload_book(context,opts,done)
                 end
             end
         end
+        A.check(self.recovery:put(self.backend.backend_id,record))
         Catalog.put(index,record)
         self:step('verifying');self:guard(context,o)
         self:phase('发布书库列表',o)
         local ok,e=pcall(self.save_index,self,index)
-        if not ok then fail('UNCERTAIN','EPUB 已上传，但书库列表未确认更新；可重新上传同名书补全。'..e.message,'uncertain') end
+        if not ok then fail('UNCERTAIN','EPUB 已上传，书库列表更新未确认。点击“补全书库列表”即可重试列表发布，无需重传正文。原因：'..e.message,'uncertain',
+            {stage='catalog',backend_id=self.backend.backend_id,record=record})end
+        local cleared=self.recovery:remove(self.backend.backend_id,record.bookId)
+        if not cleared then warning=(warning and warning..'\n' or '')..'书库已发布，待发布记录清理失败；可从补全入口再次确认。'end
         self:step('committing_local')
         return {record=record,published=true,library=self:result(index),warning=warning}
+    end,done)
+end
+function M:finish_publication(receipt,opts,done)
+    return self:run('finish_publication',opts,function(o)
+        if type(receipt)~='table' or receipt.backend_id~=self.backend.backend_id then fail('CONFLICT','待发布记录来自其他后端')end
+        local record=A.check(Meta.validate(receipt.record))
+        local saved=A.check(self.recovery:load(self.backend.backend_id))
+        local current=saved.items[record.bookId]
+        if not current or json.encode(current)~=json.encode(record)then fail('NOT_FOUND','待发布记录已更新或处理，请重新打开补全入口')end
+        self:step('reading_remote');local index=self:index()
+        Catalog.put(index,record)
+        self:step('rechecking');self:guard(nil,o);self:step('writing')
+        self:phase('补全书库列表',o);self:save_index(index)
+        self:step('verifying')
+        local cleared=self.recovery:remove(self.backend.backend_id,record.bookId)
+        self:step('committing_local')
+        return {record=record,published=true,library=self:result(index),
+            warning=not cleared and '列表已发布，但本机待发布记录清理失败' or nil}
     end,done)
 end
 function M:delete_book(entry,opts,done)
@@ -231,6 +261,7 @@ function M:delete_book(entry,opts,done)
         self:step('awaiting_confirm')
         self:confirm({kind='delete_book',backend=self.backend.root,record=record,paths=paths},o)
         self:step('rechecking');self:guard(nil,o);self:step('writing')
+        A.check(self.recovery:remove(self.backend.backend_id,record.bookId))
         for _,path in ipairs(paths) do
             local e=A.await(function(cb)self.backend:delete(path,{unconditional=true},cb)end)
             if e and e.code~='NOT_FOUND' then fail('UNCERTAIN','删除未全部完成，书库条目保留；可重新删除：'..e.message,'uncertain') end
