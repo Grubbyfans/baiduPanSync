@@ -97,7 +97,9 @@ describe('unique local book index',function()
             on_open_local=function(e)assert.is_equal(entry,e);opened=opened+1 end,
             on_delete_local=function(e)assert.is_equal(entry,e);deleted=deleted+1 end}
         local grid=CloudUI.library(result,function()downloaded=downloaded+1 end)
-        grid.toolbar_buttons[2][1].callback();assert.is_equal(1,checked)
+        grid:options();local menu=UI._window_stack[#UI._window_stack].widget
+        for _,row in ipairs(menu.buttons)do if row[1].text=='检查本机书籍'then row[1].callback()end end
+        assert.is_equal(1,checked)
         grid:select(entry);assert.is_equal(0,downloaded)
         local dialog=UI._window_stack[#UI._window_stack].widget
         assert.is_truthy(dialog.title:find(entry.local_path,1,true));assert.is_equal('重新下载',dialog.buttons[1][1].text)

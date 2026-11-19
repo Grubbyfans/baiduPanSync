@@ -31,8 +31,9 @@ local cache={load=function()return cached end,fresh=function()return today end,
     invalidate=function()invalidated=invalidated+1 end}
 package.loaded['modules/library_cache']={new=function()return cache end}
 local pending,list_calls=nil,0
+local forced=false
 package.loaded['modules/cloud_service']={new=function()
-    return {list=function(_,opts,done)list_calls=list_calls+1;pending=done end}
+    return {list=function(_,opts,done)list_calls=list_calls+1;pending=done;assert(opts.reconcile_books==forced)end}
 end}
 package.loaded['ui/cloud_dialog']={library=function(result,download,page,on_show,on_close,state,on_delete,on_repair,on_refresh)
     shown=shown+1
@@ -50,10 +51,10 @@ plugin:onCloudLibrary()
 local first=plugin.library_dialog
 assert(first.result==cached and list_calls==0 and not plugin.dav_busy)
 plugin:onCloudLibrary();assert(list_calls==0 and plugin.library_dialog==first)
-first.on_refresh();assert(plugin.dav_busy and #queue==1)
+forced=true;first.on_refresh();assert(plugin.dav_busy and #queue==1)
 table.remove(queue,1)();assert(list_calls==1)
 local fresh={backend='fixture',backend_id='backend',entries={},issues={},unpublished={}}
-pending(nil,fresh)
+pending(nil,fresh);forced=false
 assert(not plugin.dav_busy and first.result==fresh and saved==1)
 plugin:onCloudLibrary();assert(list_calls==1)
 -- Next-day first visit refreshes; failure keeps cached data and permits retry.

@@ -51,12 +51,26 @@ describe('D/E/F real WebDAV transport',function()
             local list=run('list',opts);assert.is_equal(1,#list.entries)
             local downloaded=run('download_book',list.entries[1],opts)
             local output=assert(io.open(downloaded.path,'rb'));assert.is_equal(bytes,output:read('*a'));output:close()
+            local e
+            backend:upload('books/External.EPUB',source,nil,function(err)e=err end,{precondition={unconditional=true}})
+            assert.is_nil(e)
+            local sent,status=Transport.perform{url=backend.root..'books/bad%25.epub',method='PUT',body='bad name',username='u',password='p'}
+            assert.is_nil(sent);assert.is_truthy(status.status>=200 and status.status<300)
+            local refreshed=run('list',{reconcile_books=true,confirm=opts.confirm,schedule=opts.schedule})
+            assert.is_equal(1,refreshed.refresh_summary.added);assert.is_equal(1,refreshed.refresh_summary.skipped)
+            local external
+            for _,item in ipairs(refreshed.entries)do if item.record.bookId=='External'then external=item end end
+            assert.is_truthy(external);assert.is_equal('books/External.EPUB',external.record.path)
+            local imported=run('download_book',external,opts)
+            local input=assert(io.open(imported.path,'rb'));assert.is_equal(bytes,input:read('*a'));input:close()
+            run('delete_book',external,opts)
             local first=run('progress_operation','upload',context,opts)
             assert.is_equal(1,first.record.sync.revision)
             context.progress={type='xpointer',value='/body/p[1]/text().0',percent=0.1}
             run('progress_operation','download',context,opts)
             assert.is_equal('/body/p[9]/text().0',position)
             assert.is_equal(first.record.sync.writeId,run('progress_operation','query',context,opts).remote.record.sync.writeId)
+
         end)
         rm(root)
         assert.is_true(ok,tostring(failure))

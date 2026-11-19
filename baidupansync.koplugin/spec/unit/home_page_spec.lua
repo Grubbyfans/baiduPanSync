@@ -104,8 +104,12 @@ describe('persistent plugin page',function()
         local result={backend='http://test/sync/',backend_label='百度网盘 · 我的账户',entries={},issues={}}
         local grid=CloudUI.library(result,function()end,nil,nil,nil,nil,nil,nil,function()refreshed=refreshed+1 end,function()switched=switched+1 end)
         assert.is_equal(result.backend_label,grid.result.backend_label)
-        grid.toolbar_buttons[1][3].callback();assert.is_equal(1,refreshed)
-        grid.toolbar_buttons[1][4].callback();assert.is_equal(1,switched)
+        assert.is_equal(1,#grid.toolbar_buttons);assert.is_equal(3,#grid.toolbar_buttons[1])
+        grid.toolbar_buttons[1][2].callback();assert.is_equal(1,refreshed)
+        grid.toolbar_buttons[1][3].callback()
+        local menu=UI._window_stack[#UI._window_stack].widget
+        for _,row in ipairs(menu.buttons)do if row[1].text=='切换后端'then row[1].callback()end end
+        assert.is_equal(1,switched)
         Screen.bb:fill(require('ffi/blitbuffer').COLOR_WHITE);grid:paintTo(Screen.bb,0,0)
         local output=os.getenv('BPS_LIBRARY_PREVIEW')
         if output then assert(Screen:shot(output))end

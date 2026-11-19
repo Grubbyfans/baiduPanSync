@@ -310,13 +310,14 @@ function M:download(relative,destination,progress,done,opts)
 end
 function M:delete(relative,condition,done)
     A.run(function()
-        local id=relative:match('^books/(.+)%.epub$') or relative:match('^progress/(.+)%.json$') or relative:match('^covers/(.+)%.json$')
+        local id=relative:match('^books/(.+)%.[Ee][Pp][Uu][Bb]$') or relative:match('^progress/(.+)%.json$') or relative:match('^covers/(.+)%.json$')
         if not require('modules/book_name').valid(id) and not relative:match('^c2%-probe%-[%w%-]+/probe%.json$') then
             fail('FORBIDDEN','百度删除路径无效')
         end
         self:invalidate_link(relative)
         local v=self:request('https://pan.baidu.com/rest/2.0/xpan/file','POST',
             {method='filemanager',opera='delete'},H.form{async=0,filelist=json.encode({self:path(relative)})},true)
+        if type(v.info)=='table' and #v.info==1 and v.info[1].path==self:path(relative) and v.info[1].errno==-9 then return {already_absent=true}end
         if type(v.info)~='table' or #v.info~=1 or v.info[1].path~=self:path(relative) or v.info[1].errno~=0 then
             fail('UNCERTAIN','百度删除结果未确认')
         end

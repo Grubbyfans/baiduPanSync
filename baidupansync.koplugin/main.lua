@@ -1,5 +1,5 @@
 --[[--
-BaiduPanSync 0.10.6: manual WebDAV/Baidu EPUB and reading-progress synchronization.
+BaiduPanSync 0.10.7: manual WebDAV/Baidu EPUB and reading-progress synchronization.
 D/E/F use CloudService with fixed backend snapshots.
 Baidu provides OOB authorization, streamed book transfers and manual progress sync.
 ]]
@@ -21,7 +21,7 @@ local Dialog = require("ui/progress_dialog")
 local Menu = require("ui/menu")
 
 local T = ffiUtil.template
-local VERSION = "0.10.6"
+local VERSION = "0.10.7"
 
 local BaiduPanSync = WidgetContainer:extend{
     name = "baidupansync",
@@ -351,6 +351,7 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
         local document=reader and reader.document or self.ui.document
         return document and document.file
     end
+    opts.reconcile_books=operation=='list' and force_refresh==true
     opts.local_index=self:_localBooks()
     backend.operation_opts=opts
     self.dav_busy=true
@@ -473,7 +474,12 @@ function BaiduPanSync:_cloud(operation, entry, force_refresh)
                 if cached and view then cached.refreshing=nil;cached.refresh_error=e.message;view:updateResult(cached) end
                 return show_error(e)
             end
-            return show_library(result)
+            local shown=show_library(result)
+            if result.refresh_summary then
+                local report=require('modules/cloud_inventory').summary(result.refresh_summary,backend.root)
+                return Dialog.result('书库更新完成',report)
+            end
+            return shown
         end
         if operation=='delete_book' then
             if not e or e.code~='CANCELLED' then

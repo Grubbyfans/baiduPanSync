@@ -11,6 +11,13 @@ local function safe(path)
     for part in path:gmatch('[^/]+') do if part=='.' or part=='..' then return false end end
     return not path:find('//',1,true)
 end
+-- Enumerated literal %, ? and # names are safe to report as skipped entries;
+-- the request path policy still refuses operating on these names.
+local function safe_listing(path)
+    if type(path)~='string' or path:find('[\\%c]') or path:sub(1,1)=='/' then return false end
+    for part in path:gmatch('[^/]+')do if part=='.' or part=='..' then return false end end
+    return not path:find('//',1,true)
+end
 local function encode(s) return (s:gsub('[^%w%-._~/]',function(c) return string.format('%%%02X',c:byte()) end)) end
 function M:new(o)
     local root,e = Identity.normalize_webdav(o.root_url); if not root then return nil,e end
@@ -106,7 +113,7 @@ function M:uploadSmallJson(path,text,pre,done)
 end
 function M:delete(path,pre,done)
     if pre and pre.unconditional then
-        local id=path:match('^books/(.+)%.epub$') or path:match('^progress/(.+)%.json$') or path:match('^covers/(.+)%.json$')
+        local id=path:match('^books/(.+)%.[Ee][Pp][Uu][Bb]$') or path:match('^progress/(.+)%.json$') or path:match('^covers/(.+)%.json$')
         if not require('modules/book_name').valid(id) then return done(err('FORBIDDEN','删除路径无效')) end
         return self:_request('DELETE',path,nil,nil,done)
     end
@@ -175,7 +182,7 @@ function M:list(path,continuation,done)
                 local decoded_base=base:gsub('%%(%x%x)',function(h)return string.char(tonumber(h,16))end)
                 if raw:sub(1,#decoded_base)~=decoded_base then return done(err('FORBIDDEN','DAV 条目越出根目录')) end
                 local rel=raw:sub(#decoded_base+1)
-                if not safe(rel) then return done(err('FORBIDDEN','DAV 条目路径无效')) end
+                if not safe_listing(rel) then return done(err('FORBIDDEN','DAV 条目路径无效')) end
                 local prefix=path=='' and '' or path:gsub('/+$','')..'/'
                 if rel~=path and rel~=prefix then
                     if rel:sub(1,#prefix)~=prefix or rel:sub(#prefix+1):gsub('/$',''):find('/',1,true) then

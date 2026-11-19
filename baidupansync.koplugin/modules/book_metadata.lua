@@ -35,7 +35,7 @@ end
 function M.validate(v)
     if type(v)=='table' and v.schemaVersion==2 then
         local Name=require('modules/book_name')
-        if not Name.valid(v.bookId) or v.fileName~=v.bookId..'.epub'
+        if not Name.valid(v.bookId) or Name.cloud_id(v.fileName)~=v.bookId
             or v.path~='books/'..v.fileName or v.title~=v.bookId
             or v.status~='ready' or type(v.size)~='number' or v.size<1 or v.size%1~=0 or v.size>1024*1024*1024
             or not timestamp(v.uploadedAt) or v.contentSha256~=nil or v.coverPng~=nil
@@ -54,7 +54,7 @@ end
 function M.decode(raw)
     if type(raw)~='string' or #raw>65536 then return invalid() end
     local ok,v=pcall(json.decode,raw);if not ok then return invalid() end
-    if type(v)=='table' and v.schemaVersion~=nil and v.schemaVersion~=1 then return nil,Errors.new('UNSUPPORTED','书籍元数据版本不受支持，请升级插件') end
+    if type(v)=='table' and v.schemaVersion~=nil and v.schemaVersion~=1 and v.schemaVersion~=2 then return nil,Errors.new('UNSUPPORTED','书籍元数据版本不受支持，请升级插件') end
     return M.validate(v)
 end
 function M.encode(v)
@@ -62,5 +62,8 @@ function M.encode(v)
     local raw=json.encode(v);if #raw>65536 then return invalid() end
     return raw
 end
-function M.filename(v)return M.name(v.displayFileName or v.fileName)end
+function M.filename(v)
+    if v.schemaVersion==2 then return v.fileName end
+    return M.name(v.displayFileName or v.fileName)
+end
 return M

@@ -133,39 +133,36 @@ end
 
 function Grid:options()
     local dialog
-    local pending_count=#Issues.collect(self.result)
-    local buttons={
-        {{text=_('按书名排序'),callback=function()
-            UI:close(dialog);self.state.order='name';self.page=1;self:rebuild()
-        end}},
-        {{text=_('按文件大小排序'),callback=function()
-            UI:close(dialog);self.state.order='size';self.page=1;self:rebuild()
-        end}},
-        {{text=_('主动更新书库'),enabled=self.on_refresh~=nil,callback=function()
-            UI:close(dialog);if not self.closed and self.on_refresh then self.on_refresh() end
-        end}},
-        {{text=string.format('待处理书籍（%d）',pending_count),
-            enabled=pending_count>0,callback=function()
-                UI:close(dialog);if not self.closed then self:pending() end
-            end}},
-        {{text=_('书库信息'),callback=function()
-            UI:close(dialog)
-            local lines={'后端：'..(self.result.backend_label or self.result.backend),'服务：'..self.result.backend,'书籍：'..#self.result.entries,
-                '异常记录：'..#self.result.issues}
-            if self.result.updated_at then lines[#lines+1]='最近刷新：'..os.date('%Y-%m-%d %H:%M',self.result.updated_at) end
-            if self.result.cached then lines[#lines+1]='当前显示本机缓存；每天首次进入或主动更新时获取书库列表。' end
-            if self.result.refresh_error then lines[#lines+1]='刷新失败：'..self.result.refresh_error end
-            for _,issue in ipairs(self.result.issues) do lines[#lines+1]=issue.path or '未知位置' end
-            require('ui/progress_dialog').info(table.concat(lines,'\n'))
-        end}},
-        {{text=_('关闭'),callback=function()UI:close(dialog)end}},
-    }
-    if self.result.on_diagnostics then
-        table.insert(buttons,#buttons,{{text='最近任务诊断',callback=function()
-            UI:close(dialog);if not self.closed then self.result.on_diagnostics()end
-        end}})
+    local buttons={}
+    local function add(text,action,enabled)
+        buttons[#buttons+1]={{text=text,enabled=enabled~=false,callback=function()
+            UI:close(dialog);if not self.closed then action()end
+        end}}
     end
-    dialog=Buttons:new{title=_('书库选项'),buttons=buttons}
+    add(_('按书名排序'),function()self.state.order='name';self.page=1;self:rebuild()end)
+    add(_('按文件大小排序'),function()self.state.order='size';self.page=1;self:rebuild()end)
+    if self.on_refresh then add(_('主动更新书库'),self.on_refresh)end
+    if self.result.on_check_local then add(_('检查本机书籍'),self.result.on_check_local)end
+    if self.on_switch_backend then add(_('切换后端'),self.on_switch_backend)end
+    if (self.result.pending_publications or 0)>0 and self.result.on_recover_publications then
+        add('补全书库列表（'..self.result.pending_publications..'）',self.result.on_recover_publications)
+    end
+    local pending_count=#Issues.collect(self.result)
+    if pending_count>0 then add('更新异常 / 待处理（'..pending_count..'）',function()
+        if self.result.refresh_summary then
+            require('ui/progress_dialog').result('云端书籍检查异常',require('modules/cloud_inventory').summary(self.result.refresh_summary,self.result.backend))
+        else self:pending()end
+    end)end
+    add(_('书库信息'),function()
+        local lines={'后端：'..(self.result.backend_label or self.result.backend),'服务：'..self.result.backend,
+            '书籍：'..#self.result.entries,require('ui/library_status').text(self.result)}
+        if self.result.refresh_error then lines[#lines+1]='刷新失败：'..self.result.refresh_error end
+        for _,issue in ipairs(self.result.issues or {})do lines[#lines+1]=(issue.path or '')..'\n'..(issue.message or '')end
+        require('ui/progress_dialog').result('书库信息',table.concat(lines,'\n'))
+    end)
+    if self.result.on_diagnostics then add(_('最近任务诊断'),self.result.on_diagnostics)end
+    add(_('返回书库'),function()end)
+    dialog=Buttons:new{title=_('书库管理'),buttons=buttons,rows_per_page=6}
     UI:show(dialog)
 end
 
@@ -248,35 +245,20 @@ function Grid:build()
     end
     local w,h=self.dimen.w,self.dimen.h
     local pending_count=#Issues.collect(self.result)
-    local caption=self.result.refreshing and '云端书库 · 缓存刷新中' or self.result.cached and '云端书库 · 本机缓存' or '云端书库'
-    local title=Title:new{width=w,fullscreen=true,align='center',title=caption,
-        subtitle=self.result.backend_label or self.result.backend,
-        left_icon='appbar.search',left_icon_tap_callback=function()self:search()end,
-        close_callback=function()self:close()end}
+    local title=Title:new{width=w,fullscreen=true,align='center',title=_('云端书库'),
+        subtitle=self.result.backend_label or self.result.backend,close_callback=function()self:close()end}
     local toolbar_buttons={{
-        {text=pending_count>0 and string.format('待处理 · %d',pending_count) or _('排序 / 管理'),
-            callback=function()if pending_count>0 then self:pending()else self:options()end end},
-        {text=self.state.query~='' and _('清除搜索') or _('搜索书籍'),callback=function()
-            if self.state.query and self.state.query~='' then
-                self.state.query='';self.page=1;self:rebuild()
-            else self:search() end
+        {text=self.state.query~='' and _('清除搜索') or _('搜索'),callback=function()
+            if self.state.query and self.state.query~='' then self.state.query='';self.page=1;self:rebuild()
+            else self:search()end
         end},
     }}
-    if self.on_refresh then
-        toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('主动更新书库'),callback=function()if not self.closed then self.on_refresh()end end}
-    end
-    if self.on_switch_backend then
-        toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('切换后端'),
-            callback=function()if not self.closed then self.on_switch_backend()end end}
-    end
-    if self.result.on_check_local then
-        toolbar_buttons[#toolbar_buttons+1]={{text='检查本机书籍',callback=function()if not self.closed then self.result.on_check_local()end end}}
-    end
-    if (self.result.pending_publications or 0)>0 then
-        toolbar_buttons[#toolbar_buttons+1]={{text='补全书库列表（'..self.result.pending_publications..'）',callback=function()
-            if not self.closed and self.result.on_recover_publications then self.result.on_recover_publications()end
-        end}}
-    end
+    if self.on_refresh then toolbar_buttons[1][#toolbar_buttons[1]+1]={text=_('主动更新书库'),callback=function()
+        if not self.closed then self.on_refresh()end
+    end}end
+    local notice=pending_count+(self.result.pending_publications or 0)
+    toolbar_buttons[1][#toolbar_buttons[1]+1]={text=notice>0 and ('管理 · '..notice) or _('管理'),
+        callback=function()if not self.closed then self:options()end end}
     self.toolbar_buttons=toolbar_buttons
     local toolbar=ButtonTable:new{width=w,buttons=toolbar_buttons}
     self.entries=self.filter(self.result,self.state)
@@ -328,7 +310,7 @@ function Grid:build()
         body=Center:new{dimen=Geom:new{w=w,h=h-header-footer:getSize().h},
             Text:new{width=math.floor(w*0.8),alignment='center',face=Font:getFace('cfont',20),
                 text=#self.result.entries==0 and pending_count>0 and '发现待处理书籍\n点击“待处理”查看原因并修复或清理。'
-                    or #self.result.entries==0 and _('书库为空\n在另一设备上传 EPUB 后即可浏览。')
+                    or #self.result.entries==0 and _('书库为空\n外部上传书籍后，请点击“主动更新书库”。')
                     or _('未找到匹配书籍\n请更换关键词或清除搜索。')}}
     end
     self[1]=Frame:new{width=w,height=h,padding=0,margin=0,bordersize=0,background=BB.COLOR_WHITE,

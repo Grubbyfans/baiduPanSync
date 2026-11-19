@@ -61,8 +61,9 @@ function M.new(root,user)
             assert(q.opera=='delete' and body.async=='0')
             local paths=json.decode(body.filelist);assert(#paths==1)
             if remote.before_delete then remote.before_delete(paths[1])end
+            local existed=remote.files[paths[1]]~=nil
             remote.files[paths[1]]=nil
-            response.info={{path=paths[1],errno=0}}
+            response.info={{path=paths[1],errno=existed and 0 or -9}}
         elseif q.method=='filemetas' then
             local id=tostring(json.decode(q.fsids)[1]);local path,record
             for p,r in pairs(remote.files)do if r.id==id then path=p;record=r end end

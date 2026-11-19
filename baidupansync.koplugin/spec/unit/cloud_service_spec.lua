@@ -100,6 +100,39 @@ describe('single-writer name-based catalog',function()
         local r=run('list',options());assert.is_nil(r.e);assert.is_equal(0,#r.value.entries)
         assert.is_equal(1,#backend.calls);assert.is_equal('library.json',backend.calls[1].path)
     end)
+    it('reconciles external books only on explicit refresh, without downloading EPUBs',function()
+        backend.dirs.books=true;backend.files['books/外部书籍.EPUB']='external bytes'
+        local ordinary=run('list',options());assert.is_nil(ordinary.e);assert.is_equal(0,#ordinary.value.entries)
+        backend.calls={}
+        local r=run('list',options{reconcile_books=true});assert.is_nil(r.e)
+        assert.is_equal(1,r.value.refresh_summary.added);assert.is_equal('books/外部书籍.EPUB',r.value.entries[1].record.path)
+        assert.is_equal(3,#backend.calls);assert.is_equal('download',backend.calls[1].method)
+        assert.is_equal('list',backend.calls[2].method);assert.is_equal('put',backend.calls[3].method)
+        backend.calls={};r=run('list',options{reconcile_books=true});assert.is_nil(r.e)
+        assert.is_equal(2,#backend.calls);assert.is_false(r.value.refresh_summary.changed)
+        context.book.file_name='外部书籍.epub'
+        assert.is_nil(run('upload_book',context,options()).e)
+        assert.is_equal(read(book),backend.files['books/外部书籍.EPUB']);assert.is_nil(backend.files['books/外部书籍.epub'])
+    end)
+    it('preserves the old catalog on an inventory error or cancellation',function()
+        published();local previous=backend.files['library.json']
+        backend.hook=function(method)if method=='list'then return Errors.new('NETWORK','offline')end end
+        local r=run('list',options{reconcile_books=true});assert.is_equal('NETWORK',r.e.code)
+        assert.is_equal(previous,backend.files['library.json'])
+        backend.hook=nil
+        r=run('list',options{reconcile_books=true,is_cancelled=function()return true end})
+        assert.is_equal('CANCELLED',r.e.code);assert.is_equal(previous,backend.files['library.json'])
+    end)
+    it('follows inventory pagination and refuses repeated continuation tokens before writing',function()
+        backend.list=function(self,path,page,cb)
+            if not page then return cb(nil,{entries={{path='books/first.epub',type='file',size=10}},continuation=1000})end
+            cb(nil,{entries={{path='books/second.epub',type='file',size=20}}})
+        end
+        local r=run('list',options{reconcile_books=true});assert.is_nil(r.e);assert.is_equal(2,r.value.refresh_summary.added)
+        local previous=backend.files['library.json']
+        backend.list=function(self,path,page,cb)cb(nil,{entries={},continuation=1000})end
+        r=run('list',options{reconcile_books=true});assert.is_equal('CONFLICT',r.e.code);assert.is_equal(previous,backend.files['library.json'])
+    end)
     it('does not overwrite malformed or future catalogs with an empty library',function()
         for _,raw in ipairs({'{','{"schemaVersion":99,"books":[]}','{"schemaVersion":2,"books":{"bad":{}}}'})do
             backend.files['library.json']=raw

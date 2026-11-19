@@ -158,6 +158,26 @@ assert(c.backend.links['library.json'].fs_id=='999999999999')
 local changed=remote.api();changed.profile.access_token='other-token'
 local API=require('modules/baidu_api');changed=assert(API:new(changed.profile));changed.transport=remote.transport
 remote.calls={};download(changed);assert(#remote.calls==3)
+-- Manual inventory discovers vendor-app uploads and preserves the exact path.
+local progress_raw=remote.files['/apps/fixture/progress/same.json'].raw
+remote.put('/apps/fixture/books/Manual.EPUB','manual epub')
+remote.put('/apps/fixture/books/ignored.pdf','pdf')
+remote.put('/apps/fixture/books/bad%.epub','bad name')
+remote.put('/apps/fixture/books/duplicate.epub','one')
+remote.put('/apps/fixture/books/duplicate.EPUB','two')
+c.backend:invalidate_link('library.json')
+local refreshed=run(c,'list',{reconcile_books=true,schedule=options.schedule})
+assert(not refreshed.e,refreshed.e and refreshed.e.message)
+assert(refreshed.value.refresh_summary.added==1 and refreshed.value.refresh_summary.skipped==3)
+assert(remote.files['/apps/fixture/progress/same.json'].raw==progress_raw)
+local imported
+for _,entry in ipairs(refreshed.value.entries)do if entry.record.bookId=='Manual'then imported=entry end end
+assert(imported and imported.record.path=='books/Manual.EPUB')
+local downloaded_manual=run(c,'download_book',imported,options)
+assert(not downloaded_manual.e,downloaded_manual.e and downloaded_manual.e.message)
+assert(read(downloaded_manual.value.path)=='manual epub')
+assert(not run(c,'delete_book',imported,options).e)
+assert(not remote.files['/apps/fixture/books/Manual.EPUB'])
 -- Malformed authoritative catalog does not trigger a scan/rebuild or overwrite.
 remote.put('/apps/fixture/library.json','{');c.backend:invalidate_link('library.json')
 local bad=run(c,'upload_book',context,options);assert(bad.e and remote.files['/apps/fixture/library.json'].raw=='{')

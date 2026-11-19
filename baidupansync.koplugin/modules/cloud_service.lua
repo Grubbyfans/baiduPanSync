@@ -5,6 +5,7 @@ local Record=require('modules/progress_record')
 local Meta=require('modules/book_metadata')
 local Name=require('modules/book_name')
 local Catalog=require('modules/library_catalog')
+local Inventory=require('modules/cloud_inventory')
 local Local=require('modules/local_library')
 local Random=require('modules/random')
 local Task=require('modules/task')
@@ -162,7 +163,47 @@ function M:list(opts,done)
     return self:run('library',opts,function(o)
         self:step('reading_remote')
         local index=self:index();self:guard(nil,o)
-        return self:result(index)
+        local summary
+        if o.reconcile_books then
+            self:phase('检查云端 EPUB',o)
+            local all,continuation,seen,paths={},nil,{},{}
+            repeat
+                self:guard(nil,o)
+                local e,page=A.await(function(cb)self.backend:list('books/',continuation,cb)end)
+                if e then
+                    if e.code=='NOT_FOUND' and not continuation then break end
+                    error(e,0)
+                end
+                for _,item in ipairs(page.entries)do
+                    if paths[item.path] then fail('CONFLICT','云端目录分页出现重复路径，请重试更新书库')end
+                    paths[item.path]=true;all[#all+1]=item
+                    if #all>20000 then fail('INVALID_INPUT','云端目录超过两万项，检查已停止，原列表保留')end
+                end
+                continuation=page.continuation
+                if continuation then
+                    if seen[continuation] then fail('CONFLICT','云端目录分页重复，原列表保留')end
+                    seen[continuation]=true
+                end
+            until not continuation
+            self:guard(nil,o)
+            if self.backend.invalidate_link then
+                for _,item in ipairs(all)do
+                    if item.type=='file' and item.path:match('%.[Ee][Pp][Uu][Bb]$')then
+                        if self.backend.remember and item.fs_id then self.backend:remember(item.path,item)
+                        else self.backend:invalidate_link(item.path)end
+                    end
+                end
+            end
+            index,summary=Inventory.merge(index,all,self.now())
+            self:guard(nil,o)
+            if summary.changed then
+                self:step('rechecking');self:step('writing');self:phase('发布更新后的书库列表',o)
+                self:save_index(index);self:step('verifying');self:step('committing_local')
+            end
+        end
+        local result=self:result(index);result.refresh_summary=summary
+        if summary then result.issues=summary.issues end
+        return result
     end,done)
 end
 function M:save_index(index)
@@ -180,20 +221,21 @@ function M:upload_book(context,opts,done)
         local identity=self:identify(context,o)
         self:step('reading_remote')
         local index,exists=self:index()
-        if not exists then self:directory('books');self:directory('covers') end
+        if not exists then self:directory('books');self:directory('covers');index.coverDirectoryReady=true end
         self:step('rechecking');self:guard(context,o)
         self:step('writing')
         self:phase('上传 EPUB（同名覆盖，进度保留）',o)
         A.check(self.recovery:remove(self.backend.backend_id,identity.book_id))
+        local previous=Catalog.find(index,identity.book_id)
+        local book_path=previous and previous.path or 'books/'..identity.book_id..'.epub'
         local sent,upload_error=pcall(function()
-            A.call(function(cb)self.backend:upload('books/'..identity.book_id..'.epub',context.book.file_path,o.on_transfer,cb,
+            A.call(function(cb)self.backend:upload(book_path,context.book.file_path,o.on_transfer,cb,
                 {precondition={unconditional=true}})end)
         end)
         if not sent then fail(upload_error.code,'EPUB 正文未确认上传成功：'..upload_error.message,upload_error.outcome,{stage='epub'})end
         local record={schemaVersion=2,status='ready',bookId=identity.book_id,title=identity.book_id,
-            fileName=identity.book_id..'.epub',path='books/'..identity.book_id..'.epub',size=identity.size,
+            fileName=previous and previous.fileName or identity.book_id..'.epub',path=book_path,size=identity.size,
             uploadedAt=Record.iso_timestamp(self.now())}
-        local previous=Catalog.find(index,identity.book_id)
         if previous then record.coverPath=previous.coverPath;record.coverVersion=previous.coverVersion end
         local receipt_saved,receipt_error=self.recovery:put(self.backend.backend_id,record)
         if not receipt_saved then fail('UNCERTAIN','EPUB 已上传，但待发布记录无法保存：'..receipt_error.message,'uncertain',
@@ -204,6 +246,7 @@ function M:upload_book(context,opts,done)
             if ok and require('modules/book_cover').decode(cover) then
                 self:phase('上传书籍封面',o)
                 local e=A.await(function(cb)A.run(function()
+                    if not index.coverDirectoryReady then self:directory('covers');index.coverDirectoryReady=true end
                     local path='covers/'..identity.book_id..'.json'
                     self:call('uploadSmallJson',path,json.encode({coverPng=cover}),{unconditional=true})
                     record.coverPath=path;record.coverVersion=A.check(Random.hex(16))
@@ -264,6 +307,7 @@ function M:delete_book(entry,opts,done)
         A.check(self.recovery:remove(self.backend.backend_id,record.bookId))
         for _,path in ipairs(paths) do
             local e=A.await(function(cb)self.backend:delete(path,{unconditional=true},cb)end)
+            if e and e.code=='CONFLICT' and not self:optional_stat(path:match('^(.*)/[^/]+$')) then e=nil end
             if e and e.code~='NOT_FOUND' then fail('UNCERTAIN','删除未全部完成，书库条目保留；可重新删除：'..e.message,'uncertain') end
         end
         Catalog.remove(index,record.bookId)
