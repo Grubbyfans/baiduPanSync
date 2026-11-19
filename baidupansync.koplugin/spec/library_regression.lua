@@ -39,7 +39,7 @@ local UI={show=function(_,w)shown=w end,close=function(_,w)
 end,setDirty=function()end}
 package.loaded['ui/uimanager']=UI
 for _,name in ipairs({'container/inputcontainer','container/centercontainer','container/framecontainer',
-    'verticalgroup','horizontalgroup','verticalspan','horizontalspan','textboxwidget','imagewidget',
+    'verticalgroup','horizontalgroup','verticalspan','horizontalspan','textboxwidget','imagewidget','iconwidget','overlapgroup',
     'titlebar','buttontable','buttondialog','confirmbox','inputdialog','multiinputdialog','qrwidget'})do
     package.loaded['ui/widget/'..name]=Widget:extend{kind=name}
 end

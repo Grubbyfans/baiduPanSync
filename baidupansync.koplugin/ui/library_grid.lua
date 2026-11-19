@@ -8,6 +8,8 @@ local VSpan=require('ui/widget/verticalspan')
 local HSpan=require('ui/widget/horizontalspan')
 local Text=require('ui/widget/textboxwidget')
 local Image=require('ui/widget/imagewidget')
+local Icon=require('ui/widget/iconwidget')
+local Overlap=require('ui/widget/overlapgroup')
 local Title=require('ui/widget/titlebar')
 local ButtonTable=require('ui/widget/buttontable')
 local Buttons=require('ui/widget/buttondialog')
@@ -205,7 +207,6 @@ function Grid:cell(entry,layout)
     local cover_h=math.max(20,h-caption_h-layout.gap)
     local cover_w=math.max(20,math.min(w-4,math.floor(cover_h*0.72)))
     local title=self.title_for(entry.record)
-    local caption=self.result.on_check_local and ((entry.local_path and '本机已存在' or '下载')..'\n'..title) or title
     if entry.incomplete then title='[待处理] '..title end
     local cover
     local ok,bb=pcall(Cover.render,entry.coverPng or entry.record.coverPng)
@@ -219,11 +220,20 @@ function Grid:cell(entry,layout)
                 Text:new{text=title,face=Font:getFace('cfont',fontsize+2),alignment='center',
                     width=cover_w-16,height=cover_h-16,height_overflow_show_ellipsis=true}}}
     end
+    local cover_slot=cover
+    if entry.local_path then
+        local badge_size=math.max(20,math.floor(fontsize*1.8))
+        local badge=Frame:new{width=badge_size,height=badge_size,padding=2,margin=0,bordersize=1,radius=2,
+            background=BB.COLOR_WHITE,overlap_align='right',
+            Center:new{dimen=Geom:new{w=badge_size-6,h=badge_size-6},
+                Icon:new{icon='check',width=badge_size-6,height=badge_size-6}}}
+        cover_slot=Overlap:new{dimen=Geom:new{w=cover:getSize().w,h=cover:getSize().h},allow_mirroring=false,cover_slot,badge}
+    end
     local content=Vertical:new{align='center',
-        Center:new{dimen=Geom:new{w=w,h=cover_h},cover},
+        Center:new{dimen=Geom:new{w=w,h=cover_h},cover_slot},
         VSpan:new{width=layout.gap},
         Center:new{dimen=Geom:new{w=w,h=caption_h},
-            Text:new{text=caption,face=Font:getFace('cfont',fontsize),width=w-4,height=caption_h,
+            Text:new{text=title,face=Font:getFace('cfont',fontsize),width=w-4,height=caption_h,
                 alignment='center',height_overflow_show_ellipsis=true}},
     }
     local cell=InputContainer:new{dimen=Geom:new{w=w,h=h},content}
