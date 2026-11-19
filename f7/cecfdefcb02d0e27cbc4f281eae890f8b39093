@@ -1,0 +1,33 @@
+baidupansync.koplugin/_meta.lua
+  s_e3b637e15ec5a8::t_e3b2b2d89484fc 5
+Android阅读App_技术方案.md
+  s_e3b637e15ec5a8::t_9bd90e725c89f0 3-8
+  s_e3b637e15ec5a8::t_064e312f0a3544 1-2,9-734
+baidupansync.koplugin/main.lua
+  s_e3b637e15ec5a8::t_e3b2b2d89484fc 2,24
+baidupansync.koplugin/README.md
+  s_e3b637e15ec5a8::t_e3b2b2d89484fc 3-5
+  s_e3b637e15ec5a8::t_7a485ccdca8792 6
+  s_e3b637e15ec5a8::t_af28e6e3810622 7
+README.md
+  s_e3b637e15ec5a8::t_8e550efd31b152 36
+  s_e3b637e15ec5a8::t_e3b2b2d89484fc 6,8,17,35
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_e3b637e15ec5a8::t_e3b2b2d89484fc 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7cecfdefcb02d0e27cbc4f281eae890f8b39093",
+  "prompts": {},
+  "sessions": {
+    "s_e3b637e15ec5a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f192-302e-7f80-8839-33fd30aff075",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}
