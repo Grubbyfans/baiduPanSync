@@ -1,0 +1,33 @@
+README.md
+  s_e3b637e15ec5a8::t_81203dad31087f 7,16,119-124
+baidupansync.koplugin/README.md
+  s_e3b637e15ec5a8::t_1443905c77cc18 3,125-130
+baidupansync.koplugin/_meta.lua
+  s_e3b637e15ec5a8::t_5c28a69974cbf3 5
+baidupansync.koplugin/main.lua
+  s_e3b637e15ec5a8::t_aaf873e6990334 2,24
+baidupansync.koplugin/modules/book_name.lua
+  s_e3b637e15ec5a8::t_e6b0593ddb9e10 22-36
+baidupansync.koplugin/modules/local_books.lua
+  s_e3b637e15ec5a8::t_a2e7c298899db5 26-27,74,121
+baidupansync.koplugin/spec/unit/local_books_spec.lua
+  s_e3b637e15ec5a8::t_2a0e6b19152d92 27-49
+baidupansync.koplugin/spec/unit/plugin_spec.lua
+  s_e3b637e15ec5a8::t_2442e96c3dfab3 14-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "595dd44299ea603c5c718576843b12cd415501ee",
+  "prompts": {},
+  "sessions": {
+    "s_e3b637e15ec5a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1f192-302e-7f80-8839-33fd30aff075",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "周康 <1412873631@qq.com>"
+    }
+  }
+}
